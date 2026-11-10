@@ -38,6 +38,16 @@ public class GameCatalogTests
     }
 
     [Fact]
+    public void NoOutfitHasMorePiecesThanTheGameAccepts()
+    {
+        if (GameFiles.Catalog is not { } catalog)
+            return;
+
+        // StoreNewOutfit lit 9 pièces au plus ; le plus grand ensemble en a 9 (jeu du 10 novembre 2026).
+        Assert.True(catalog.MaxPieces <= StoreArguments.MaxPieces, $"{catalog.MaxPieces} pieces");
+    }
+
+    [Fact]
     public void SomePiecesBelongToSeveralOutfits()
     {
         if (GameFiles.Catalog is not { } catalog)

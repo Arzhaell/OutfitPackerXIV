@@ -59,6 +59,9 @@ public sealed class OutfitCatalog
 
     public int Count => outfits.Count;
 
+    /// <summary>Le nombre de pièces du plus grand ensemble.</summary>
+    public int MaxPieces => outfits.Values.Max(o => o.Pieces.Count);
+
     /// <summary>
     /// Les ensembles de la feuille du jeu. La ligne 0 n'est pas un ensemble (elle ne contient que les gils) et des lignes
     /// sont vides : elles sont ignorées.
@@ -82,6 +85,14 @@ public sealed class OutfitCatalog
 /// <summary>Numéros d'objets tels que le jeu les range.</summary>
 public static class ItemIds
 {
+    private const uint HighQualityOffset = 1_000_000;
+
+    /// <summary>L'objet est-il de haute qualité (le jeu ajoute 1 000 000 à son numéro) ?</summary>
+    public static bool IsHighQuality(uint itemId) => itemId is >= HighQualityOffset and < 2 * HighQualityOffset;
+
+    /// <summary>Le numéro que le jeu donne à l'objet dans cette qualité.</summary>
+    public static uint WithQuality(uint baseItemId, bool highQuality) => highQuality ? baseItemId + HighQualityOffset : baseItemId;
+
     /// <summary>
     /// Le numéro de l'objet lui-même : le jeu ajoute 1 000 000 pour la haute qualité et 500 000 pour les objets de
     /// collection. Au-delà de 2 000 000 (objets clés), rien n'est retiré.

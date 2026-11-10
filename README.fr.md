@@ -5,7 +5,7 @@
 Un plugin Dalamud pour FINAL FANTASY XIV qui retrouve, dans ta coiffeuse mirage, les pièces d'équipement d'un même
 ensemble, pour les ranger en un seul ensemble et libérer des cases.
 
-## Ce qu'il montre
+## Ce qu'il trouve
 Ouvre la coiffeuse : la fenêtre d'OutfitPackerXIV s'ouvre à côté (ou tape `/outfitpacker`).
 
 - **Complets** : toutes les pièces de l'ensemble sont dans la coiffeuse, chacune dans sa case.
@@ -17,8 +17,22 @@ Ouvre la coiffeuse : la fenêtre d'OutfitPackerXIV s'ouvre à côté (ou tape `/
 Pour chaque ensemble, le plugin indique combien de cases le ranger libère, et signale les pièces teintes et celles qui
 font partie de plusieurs ensembles. Un champ de recherche filtre les ensembles et les pièces par leur nom.
 
-Cette version **ne fait que lire** la coiffeuse : elle ne déplace rien. Le regroupement automatique viendra dans une
-prochaine version.
+## Regrouper un ensemble
+Le bouton **Regrouper** devant un ensemble (onglets Complets, Incomplets et À compléter) le fait à ta place, une
+action à la fois : il sort chaque pièce de la coiffeuse, attend que le jeu confirme, puis range les pièces en un
+ensemble (ou les ajoute à l'ensemble déjà rangé). Son infobulle dit à l'avance ce qu'il va faire.
+
+- **Prismes mirage** : le jeu en utilise jusqu'à un par pièce rangée dans un ensemble. Le bouton est grisé s'il t'en
+  manque.
+- **Teintures** : le jeu retire la teinture des pièces qu'il range dans un ensemble. Les pièces teintes restent dans
+  leur case, sauf si tu coches « Regrouper aussi les pièces teintes » dans les réglages.
+- **Qualité** : le jeu ne mélange pas pièces normales et de haute qualité dans un ensemble. Le plugin prend la qualité
+  qui range le plus de pièces (ou celle de l'ensemble déjà rangé) ; les autres restent dans leur case.
+- Garde la coiffeuse ouverte : la fermer arrête tout. Si le jeu refuse de sortir une pièce (inventaire plein), les
+  pièces déjà sorties sont rangées dans l'ensemble. **Stop** (ou fermer la fenêtre du plugin) fait de même.
+- Le plugin n'utilise que les pièces qu'il vient de sortir de la coiffeuse, jamais les objets qui étaient déjà dans ton
+  inventaire. Un message (dans la fenêtre et dans le chat) résume ce qui a été fait, et cite les pièces restées dans
+  ton inventaire s'il y en a.
 
 En français et en anglais (suit la langue de Dalamud, réglable dans les réglages).
 

@@ -5,7 +5,7 @@
 A Dalamud plugin for FINAL FANTASY XIV that finds, in your Glamour Dresser, the pieces of gear that belong to the same
 outfit, so you can store them as one outfit and free up slots.
 
-## What it shows
+## What it finds
 Open the Glamour Dresser: the OutfitPackerXIV window opens next to it (or type `/outfitpacker`).
 
 - **Complete**: every piece of the outfit is in the dresser, each in its own slot.
@@ -17,8 +17,22 @@ Open the Glamour Dresser: the OutfitPackerXIV window opens next to it (or type `
 For each outfit, the plugin shows how many dresser slots storing it would free, and flags dyed pieces and pieces shared
 by several outfits. A search field filters outfits and pieces by name.
 
-This version **only reads** the dresser: it never moves anything. Grouping the outfits for you will come in a later
-version.
+## Packing an outfit
+The **Pack** button in front of an outfit (Complete, Incomplete and Add to stored tabs) does it for you, one action at
+a time: it takes each piece out of the dresser, waits for the game to confirm, then stores the pieces as an outfit (or
+adds them to the stored one). Its tooltip tells what it will do beforehand.
+
+- **Glamour Prisms**: the game uses up to one per piece stored in an outfit. The button is greyed out if you do not
+  have enough.
+- **Dyes**: the game removes the dye of the pieces it stores in an outfit. Dyed pieces stay in their own slot, unless
+  you tick “Also pack dyed pieces” in the settings.
+- **Quality**: the game does not mix normal and high-quality pieces in one outfit. The plugin takes the quality that
+  stores the most pieces (or the one of the stored outfit); the others stay in their slot.
+- Keep the dresser open: closing it stops everything. If the game refuses to take a piece out (full inventory), the
+  pieces already out are stored in the outfit. **Stop** (or closing the plugin window) does the same.
+- The plugin only uses the pieces it has just taken out of the dresser, never the items that were already in your
+  inventory. A message (in the window and in the chat) sums up what was done, and lists any piece left in your
+  inventory.
 
 Available in English and French (follows Dalamud's language, can be forced in the settings).
 

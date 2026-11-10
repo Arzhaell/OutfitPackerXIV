@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Game.Command;
@@ -20,13 +21,19 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
+    [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
+    [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     private readonly WindowSystem windowSystem = new("OutfitPackerXIV");
     private readonly MainWindow mainWindow;
+    private readonly GameDresser dresser = new();
 
     // Dernières cases lues : on ne refait le calcul que si la coiffeuse a changé.
     private DresserSlot[]? lastSlots;
+
+    // La fonction du jeu qui compte les prismes a échoué (jeu mis à jour sans le plugin) : on ne la rappelle plus.
+    private bool prismsUnreadable;
 
     // La fenêtre a été ouverte par la coiffeuse : elle se ferme avec elle.
     private bool openedWithDresser;
@@ -63,6 +70,31 @@ public sealed class Plugin : IDalamudPlugin
     /// <summary>Ce que la coiffeuse permet de regrouper, ou null tant que le jeu ne l'a pas chargée.</summary>
     internal DresserReport? Report { get; private set; }
 
+    /// <summary>La fenêtre de la coiffeuse est ouverte (relu quand la fenêtre du plugin l'est).</summary>
+    internal bool DresserOpen { get; private set; }
+
+    /// <summary>Prismes mirage possédés (relu quand la fenêtre du plugin l'est).</summary>
+    internal int GlamourPrisms { get; private set; }
+
+    /// <summary>Le regroupement en cours, un seul à la fois.</summary>
+    internal PackJob? Job { get; private set; }
+
+    /// <summary>Le bilan du dernier regroupement, affiché jusqu'au suivant.</summary>
+    internal (string Text, bool Ok)? LastResult { get; private set; }
+
+    internal void StartPack(PackPlan plan)
+    {
+        if (Job != null)
+            return;
+
+        LastResult = null;
+        Job = new PackJob(dresser, plan);
+        Log.Information($"Packing outfit {plan.DresserSetItemId}: {plan.Pieces.Count} pieces ({string.Join(", ", plan.Pieces.Select(p => p.DresserItemId))}), new: {plan.IsNew}.");
+    }
+
+    /// <summary>Ne plus sortir de pièce : celles déjà sorties sont rangées, puis le regroupement s'arrête.</summary>
+    internal void StopPack() => Job?.Stop();
+
     public void SetLanguage(PluginLanguage language)
     {
         Configuration.Language = language;
@@ -72,6 +104,9 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        if (Job != null)
+            Log.Warning($"Unloaded while packing outfit {Job.Plan.DresserSetItemId}: {Job.TakenOut} pieces taken out of the dresser.");
+        Job = null;
         CommandManager.RemoveHandler(CommandName);
         AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, GameDresser.AddonName, OnDresserOpened);
         AddonLifecycle.UnregisterListener(AddonEvent.PreFinalize, GameDresser.AddonName, OnDresserClosed);
@@ -97,18 +132,35 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
-    // Sur le fil principal du jeu : lecture de la coiffeuse, seulement quand la fenêtre est ouverte.
+    // Sur le fil principal du jeu : le regroupement en cours, puis la lecture de la coiffeuse quand la fenêtre est ouverte.
     private void OnFrameworkUpdate(IFramework framework)
     {
+        UpdateJob();
         if (!mainWindow.IsOpen)
             return;
 
-        var slots = GameDresser.ReadSlots();
+        var slots = dresser.ReadSlots();
         if (slots == null)
         {
             Report = null;
             lastSlots = null;
+            DresserOpen = false;
             return;
+        }
+
+        DresserOpen = dresser.IsDresserOpen;
+        if (!prismsUnreadable)
+        {
+            try
+            {
+                GlamourPrisms = dresser.GlamourPrisms;
+            }
+            catch (Exception e)
+            {
+                // Noté une fois : sans prismes comptés, les boutons « Regrouper » restent grisés.
+                Log.Error(e, "Could not count the Glamour Prisms.");
+                prismsUnreadable = true;
+            }
         }
 
         if (lastSlots != null && slots.AsSpan().SequenceEqual(lastSlots))
@@ -117,7 +169,7 @@ public sealed class Plugin : IDalamudPlugin
         lastSlots = slots;
         try
         {
-            Report = DresserScan.Run(Catalog, slots, GameDresser.IsOutfitColumnStored);
+            Report = DresserScan.Run(Catalog, slots, dresser.IsOutfitColumnStored);
             ReadError = false;
         }
         catch (Exception e)
@@ -131,6 +183,38 @@ public sealed class Plugin : IDalamudPlugin
 
     /// <summary>La lecture de la coiffeuse a échoué (jeu mis à jour sans que le plugin le soit).</summary>
     internal bool ReadError { get; private set; }
+
+    // Une étape au plus par image : le regroupement attend que le jeu confirme chaque action avant la suivante.
+    private void UpdateJob()
+    {
+        if (Job == null)
+            return;
+
+        try
+        {
+            Job.Update(TimeSpan.FromMilliseconds(Environment.TickCount64));
+        }
+        catch (Exception e)
+        {
+            Log.Error(e, "Packing failed.");
+            Job.Abort(PackProblem.GameError);
+        }
+
+        if (Job.Result is not { } result)
+            return;
+
+        var plan = Job.Plan;
+        Job = null;
+        Log.Information($"Packing outfit {plan.DresserSetItemId} ended: {result.Problem} (piece {result.ProblemItemId}), "
+            + $"{result.StoredPieces} stored, left in inventory: [{string.Join(", ", result.LeftInInventory)}], "
+            + $"no longer in the dresser: [{string.Join(", ", result.NoLongerInDresser)}].");
+        var (text, ok) = PackText.Result(plan, result, Items);
+        LastResult = (text, ok);
+        if (ok)
+            ChatGui.Print(text, "OutfitPackerXIV");
+        else
+            ChatGui.PrintError(text, "OutfitPackerXIV");
+    }
 
     private void OnDresserOpened(AddonEvent type, AddonArgs args)
     {

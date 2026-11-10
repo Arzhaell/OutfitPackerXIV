@@ -8,7 +8,7 @@ namespace OutfitPackerXIV;
 public readonly record struct DresserSlot(int Index, uint ItemId, byte Stain0, byte Stain1);
 
 /// <summary>Un exemplaire d'une pièce rangé seul dans la coiffeuse (pas dans un ensemble).</summary>
-public readonly record struct LoosePiece(int Index, bool Dyed);
+public readonly record struct LoosePiece(int Index, bool Dyed, bool HighQuality = false);
 
 /// <summary>Une pièce d'un ensemble, et où elle se trouve dans la coiffeuse.</summary>
 public sealed class PieceStatus
@@ -49,17 +49,21 @@ public sealed class PieceStatus
 /// <summary>Un ensemble dont au moins une pièce est rangée seule dans la coiffeuse.</summary>
 public sealed class OutfitStatus
 {
-    public OutfitStatus(OutfitDefinition outfit, int? outfitIndex, IReadOnlyList<PieceStatus> pieces)
+    public OutfitStatus(OutfitDefinition outfit, int? outfitIndex, IReadOnlyList<PieceStatus> pieces, bool storedHighQuality = false)
     {
         Outfit = outfit;
         OutfitIndex = outfitIndex;
         Pieces = pieces;
+        StoredHighQuality = storedHighQuality;
     }
 
     public OutfitDefinition Outfit { get; }
 
     /// <summary>Case de la coiffeuse où l'ensemble est déjà rangé, ou null s'il n'y est pas.</summary>
     public int? OutfitIndex { get; }
+
+    /// <summary>L'ensemble rangé est de haute qualité : seules des pièces de haute qualité peuvent le rejoindre.</summary>
+    public bool StoredHighQuality { get; }
 
     public IReadOnlyList<PieceStatus> Pieces { get; }
 
@@ -135,7 +139,7 @@ public static class DresserScan
     {
         var used = 0;
         var loose = new Dictionary<uint, List<LoosePiece>>();
-        var stored = new Dictionary<uint, int>();
+        var stored = new Dictionary<uint, DresserSlot>();
         var outfitIds = new List<uint>();
 
         foreach (var slot in slots)
@@ -148,7 +152,7 @@ public static class DresserScan
             if (catalog.TryGetOutfit(itemId, out _))
             {
                 // Les teintures d'une case « ensemble » ne sont pas des teintures : le jeu y note les pièces rangées.
-                if (stored.TryAdd(itemId, slot.Index))
+                if (stored.TryAdd(itemId, slot))
                     outfitIds.Add(itemId);
                 continue;
             }
@@ -159,7 +163,7 @@ public static class DresserScan
 
             if (!loose.TryGetValue(itemId, out var copies))
                 loose[itemId] = copies = [];
-            copies.Add(new LoosePiece(slot.Index, slot.Stain0 != 0 || slot.Stain1 != 0));
+            copies.Add(new LoosePiece(slot.Index, slot.Stain0 != 0 || slot.Stain1 != 0, ItemIds.IsHighQuality(slot.ItemId)));
 
             foreach (var outfit in outfits)
             {
@@ -172,7 +176,8 @@ public static class DresserScan
         foreach (var setItemId in outfitIds)
         {
             catalog.TryGetOutfit(setItemId, out var outfit);
-            int? outfitIndex = stored.TryGetValue(setItemId, out var index) ? index : null;
+            var isStored = stored.TryGetValue(setItemId, out var storedSlot);
+            int? outfitIndex = isStored ? storedSlot.Index : null;
 
             var pieces = outfit.Pieces.Select(p => new PieceStatus(
                 p.Column,
@@ -181,7 +186,7 @@ public static class DresserScan
                 loose.TryGetValue(p.ItemId, out var copies) ? copies : [],
                 catalog.OutfitsWithPiece(p.ItemId).Where(o => o != outfit).Select(o => o.SetItemId).ToArray())).ToArray();
 
-            var status = new OutfitStatus(outfit, outfitIndex, pieces);
+            var status = new OutfitStatus(outfit, outfitIndex, pieces, isStored && ItemIds.IsHighQuality(storedSlot.ItemId));
             if (status.JoinablePieces > 0 || status.ExtraCopies > 0)
                 result.Add(status);
         }

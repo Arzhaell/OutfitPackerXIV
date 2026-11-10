@@ -13,7 +13,7 @@ namespace OutfitPackerXIV;
 
 /// <summary>
 /// Fenêtre de la coiffeuse : les ensembles complets, incomplets, ceux qu'une pièce peut rejoindre et les doublons,
-/// chacun avec ses pièces et les cases qu'il libère. Elle ne fait que lire.
+/// chacun avec ses pièces et les cases qu'il libère, et un bouton pour le regrouper.
 /// </summary>
 internal sealed class MainWindow : Window
 {
@@ -22,13 +22,15 @@ internal sealed class MainWindow : Window
     private readonly Plugin plugin;
     private string search = string.Empty;
 
-    // Listes triées par nom, recalculées quand la coiffeuse change.
+    // Listes triées par nom et pièces à ranger de chaque ensemble, recalculées quand la coiffeuse ou les réglages changent.
     private DresserReport? sortedFor;
     private bool sortedWithSinglePieces;
+    private bool sortedWithDyedPieces;
     private OutfitStatus[] complete = [];
     private OutfitStatus[] partial = [];
     private OutfitStatus[] addToStored = [];
     private OutfitStatus[] duplicates = [];
+    private Dictionary<uint, PackPlan> plans = [];
 
     public MainWindow(Plugin plugin)
         : base("OutfitPackerXIV" + Key)
@@ -43,7 +45,12 @@ internal sealed class MainWindow : Window
 
     private ItemInfo Items => plugin.Items;
 
-    public override void OnClose() => plugin.ForgetDresserOpening();
+    // Fermer la fenêtre arrête le regroupement : les pièces déjà sorties sont rangées, rien d'autre ne sort.
+    public override void OnClose()
+    {
+        plugin.ForgetDresserOpening();
+        plugin.StopPack();
+    }
 
     public override void Draw()
     {
@@ -56,6 +63,7 @@ internal sealed class MainWindow : Window
 
         SortLists(report);
         DrawSummary(report);
+        DrawPacking();
         ImGui.Spacing();
 
         ImGui.SetNextItemWidth(-1);
@@ -67,8 +75,8 @@ internal sealed class MainWindow : Window
             return;
 
         DrawTab(Loc.T("Complete", "Complets"), complete, Loc.T(
-            "All their pieces are in the dresser, each in its own slot: store them as an outfit in the game.",
-            "Toutes leurs pièces sont dans la coiffeuse, chacune dans sa case : range-les en ensemble dans le jeu."));
+            "All their pieces are in the dresser, each in its own slot: “Pack” stores them as an outfit.",
+            "Toutes leurs pièces sont dans la coiffeuse, chacune dans sa case : « Regrouper » les range en un ensemble."));
         DrawTab(Loc.T("Incomplete", "Incomplets"), partial, Loc.T(
             "Some pieces are missing. The game can store an incomplete outfit: the other pieces can join it later.",
             "Il manque des pièces. Le jeu peut ranger un ensemble incomplet : les autres pièces pourront le rejoindre plus tard."));
@@ -96,6 +104,7 @@ internal sealed class MainWindow : Window
                 "Ouvre la coiffeuse : le jeu ne charge son contenu qu'à ce moment-là."));
         }
 
+        DrawPacking();
         ImGui.Spacing();
         DrawSettings();
     }
@@ -107,17 +116,45 @@ internal sealed class MainWindow : Window
         if (freed > 0)
         {
             ImGui.TextColored(ImGuiColors.HealerGreen, Loc.T(
-                $"Storing these outfits frees up to {Slots(freed)}.",
-                $"Ranger ces ensembles libère jusqu'à {Slots(freed)}."));
+                $"Storing these outfits frees up to {PackText.Slots(freed)}.",
+                $"Ranger ces ensembles libère jusqu'à {PackText.Slots(freed)}."));
         }
         else
         {
             ImGui.TextColored(ImGuiColors.DalamudGrey, Loc.T("No outfit to store.", "Aucun ensemble à ranger."));
         }
 
-        ImGui.TextColored(ImGuiColors.DalamudGrey, Loc.T(
-            "This version only reads the dresser: it never moves anything.",
-            "Cette version ne fait que lire la coiffeuse : elle ne déplace rien."));
+        ImGui.TextColored(ImGuiColors.DalamudGrey, Loc.T($"Glamour Prisms: {plugin.GlamourPrisms}", $"Prismes mirage : {plugin.GlamourPrisms}"));
+        Tooltip(Loc.T(
+            "The game uses up to one Glamour Prism per piece stored in an outfit.",
+            "Le jeu utilise jusqu'à un prisme mirage par pièce rangée dans un ensemble."));
+    }
+
+    // Le regroupement en cours (avec Stop), ou le bilan du dernier.
+    private void DrawPacking()
+    {
+        if (plugin.Job is { } job)
+        {
+            ImGui.Spacing();
+            using (ImRaii.Disabled(job.StopRequested))
+            {
+                if (ImGui.SmallButton(Loc.T("Stop", "Stop") + "###stop"))
+                    plugin.StopPack();
+            }
+
+            Tooltip(Loc.T(
+                "Takes no more pieces out: those already out are stored in the outfit, then it stops.",
+                "Ne sort plus de pièce : celles déjà sorties sont rangées dans l'ensemble, puis il s'arrête."));
+            ImGui.SameLine();
+            ImGui.TextColored(ImGuiColors.DalamudYellow, PackText.Progress(job, Items));
+        }
+        else if (plugin.LastResult is { } last)
+        {
+            ImGui.Spacing();
+            ImGui.PushTextWrapPos(0);
+            ImGui.TextColored(last.Ok ? ImGuiColors.HealerGreen : ImGuiColors.DalamudOrange, last.Text);
+            ImGui.PopTextWrapPos();
+        }
     }
 
     private void DrawTab(string title, OutfitStatus[] outfits, string explanation, bool duplicatesOnly = false)
@@ -151,7 +188,13 @@ internal sealed class MainWindow : Window
         var have = outfit.Pieces.Count(p => !p.Missing);
         var gain = duplicatesOnly
             ? Loc.T($"{outfit.ExtraCopies} extra", $"{outfit.ExtraCopies} en trop")
-            : outfit.FreedSlots > 0 ? $"−{Slots(outfit.FreedSlots)}" : Loc.T("no slot freed", "aucune case libérée");
+            : outfit.FreedSlots > 0 ? $"−{PackText.Slots(outfit.FreedSlots)}" : Loc.T("no slot freed", "aucune case libérée");
+
+        if (!duplicatesOnly && plans.TryGetValue(setId, out var plan))
+        {
+            DrawPackButton(plan);
+            ImGui.SameLine();
+        }
 
         Icon(Items.Icon(setId));
         ImGui.SameLine();
@@ -178,6 +221,27 @@ internal sealed class MainWindow : Window
                 continue;
             DrawPiece(piece, duplicatesOnly);
         }
+    }
+
+    private void DrawPackButton(PackPlan plan)
+    {
+        var whyDisabled = PackText.WhyDisabled(plan, plugin.Job != null, plugin.DresserOpen, plugin.GlamourPrisms);
+        using (ImRaii.Disabled(whyDisabled != null))
+        {
+            if (ImGui.SmallButton(Loc.T("Pack", "Regrouper") + $"###pack{plan.Outfit.SetItemId}"))
+                plugin.StartPack(plan);
+        }
+
+        if (!ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            return;
+
+        using var tooltip = ImRaii.Tooltip();
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 30);
+        if (whyDisabled != null)
+            ImGui.TextColored(ImGuiColors.DalamudOrange, whyDisabled);
+        foreach (var line in PackText.Describe(plan, plugin.GlamourPrisms, Items))
+            ImGui.TextUnformatted(line);
+        ImGui.PopTextWrapPos();
     }
 
     private void DrawPiece(PieceStatus piece, bool duplicatesOnly)
@@ -250,6 +314,17 @@ internal sealed class MainWindow : Window
             "Storing them frees no slot (the outfit takes the piece's place), but the next pieces you get can join it.",
             "Les ranger ne libère aucune case (l'ensemble prend la place de la pièce), mais les prochaines pièces pourront le rejoindre."));
 
+        var dyedPieces = Config.IncludeDyedPieces;
+        if (ImGui.Checkbox(Loc.T("Also pack dyed pieces", "Regrouper aussi les pièces teintes"), ref dyedPieces))
+        {
+            Config.IncludeDyedPieces = dyedPieces;
+            Config.Save();
+        }
+
+        Tooltip(Loc.T(
+            "The game removes their dye when it stores them in an outfit. Otherwise they stay in their own slot.",
+            "Le jeu retire leur teinture en les rangeant dans l'ensemble. Sinon, elles restent dans leur case."));
+
         ImGui.Spacing();
         ImGui.SetNextItemWidth(160 * ImGuiHelpers.GlobalScale);
         var languages = new[] { (PluginLanguage.Auto, Loc.T("Automatic", "Automatique")), (PluginLanguage.English, "English"), (PluginLanguage.French, "Français") };
@@ -276,15 +351,18 @@ internal sealed class MainWindow : Window
 
     private void SortLists(DresserReport report)
     {
-        if (ReferenceEquals(sortedFor, report) && sortedWithSinglePieces == Config.ShowSinglePieces)
+        if (ReferenceEquals(sortedFor, report) && sortedWithSinglePieces == Config.ShowSinglePieces && sortedWithDyedPieces == Config.IncludeDyedPieces)
             return;
 
         sortedFor = report;
         sortedWithSinglePieces = Config.ShowSinglePieces;
+        sortedWithDyedPieces = Config.IncludeDyedPieces;
         complete = Sorted(report.Complete);
         partial = Sorted(report.Partial(Config.ShowSinglePieces));
         addToStored = Sorted(report.AddToStored);
         duplicates = Sorted(report.Duplicates);
+        plans = complete.Concat(partial).Concat(addToStored)
+            .ToDictionary(o => o.Outfit.SetItemId, o => PackPlanner.Plan(o, Config.IncludeDyedPieces));
     }
 
     // Plus grand gain d'abord, puis par nom.
@@ -292,10 +370,6 @@ internal sealed class MainWindow : Window
         .OrderByDescending(o => o.FreedSlots)
         .ThenBy(o => Items.Name(o.Outfit.SetItemId), StringComparer.CurrentCultureIgnoreCase)
         .ToArray();
-
-    private static string Slots(int count) => count == 1
-        ? Loc.T("1 slot", "1 case")
-        : Loc.T($"{count} slots", $"{count} cases");
 
     private static void Icon(uint iconId)
     {
