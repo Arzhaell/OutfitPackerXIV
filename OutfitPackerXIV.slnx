@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="OutfitPackerXIV/OutfitPackerXIV.csproj" />
+  <Project Path="OutfitPackerXIV.Tests/OutfitPackerXIV.Tests.csproj" />
+</Solution>

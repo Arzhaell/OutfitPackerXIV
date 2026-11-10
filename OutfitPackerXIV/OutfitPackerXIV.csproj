@@ -1,0 +1,19 @@
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>0.1.0.0</Version>
+    <Description>Finds the outfits you can store in the Glamour Dresser to free up its slots.</Description>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Sans ça, la version des fichiers porte le hash du commit d'avant (la compilation précède le commit « Version X.Y.Z »). -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="OutfitPackerXIV.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Icône de la liste des plugins de Dalamud : pour une version de dev, il la lit dans images\ à côté de la DLL. -->
+    <None Include="..\images\icon.png" Link="images\icon.png" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\images\icon.png')" />
+  </ItemGroup>
+</Project>

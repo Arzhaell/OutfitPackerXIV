@@ -1,0 +1,10 @@
+{
+  "Author": "Arzhael",
+  "Name": "OutfitPackerXIV",
+  "Punchline": "Finds the outfits you can store in the Glamour Dresser to free up its slots.",
+  "Description": "When you open the Glamour Dresser, OutfitPackerXIV lists the pieces of gear that belong to the same outfit: complete outfits ready to be stored, incomplete ones with their missing pieces, outfits already stored that a loose piece can join, and duplicates. For each one, it shows how many dresser slots you would free.\nThis version only reads the dresser: it never moves anything.\nAvailable in English and French. Command: /outfitpacker",
+  "ApplicableVersion": "any",
+  "Tags": [ "glamour", "dresser", "outfit", "glamour dresser", "mirage", "storage" ],
+  "RepoUrl": "https://github.com/Arzhaell/OutfitPackerXIV",
+  "IconUrl": "https://raw.githubusercontent.com/Arzhaell/OutfitPackerXIV/main/images/icon.png"
+}
