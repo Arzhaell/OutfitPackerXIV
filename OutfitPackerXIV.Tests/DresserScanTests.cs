@@ -101,6 +101,19 @@ public class DresserScanTests
     }
 
     [Fact]
+    public void StoredOutfitAfterOneOfItsPiecesIsListedOnce()
+    {
+        // Le corps seul est rangé avant l'ensemble A dans la coiffeuse (seule la tête est dans l'ensemble).
+        var report = Scan(Dresser(11, 1000, 12), (index, column) => index == 1 && column == Head);
+
+        var a = Status(report, 1000);
+        Assert.True(a.IsStored);
+        Assert.Equal(1, a.OutfitIndex);
+        Assert.Equal(2, a.JoinablePieces);
+        Assert.Single(report.AddToStored, o => o.Outfit.SetItemId == 1000);
+    }
+
+    [Fact]
     public void PieceAlreadyInItsOutfitIsADuplicate()
     {
         var report = Scan(Dresser(1000, 10), (_, column) => column == Head);

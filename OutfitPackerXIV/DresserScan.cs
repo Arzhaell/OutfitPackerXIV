@@ -152,7 +152,8 @@ public static class DresserScan
             if (catalog.TryGetOutfit(itemId, out _))
             {
                 // Les teintures d'une case « ensemble » ne sont pas des teintures : le jeu y note les pièces rangées.
-                if (stored.TryAdd(itemId, slot))
+                // Une pièce seule de cet ensemble a pu être vue avant lui : il ne doit être listé qu'une fois.
+                if (stored.TryAdd(itemId, slot) && !outfitIds.Contains(itemId))
                     outfitIds.Add(itemId);
                 continue;
             }
