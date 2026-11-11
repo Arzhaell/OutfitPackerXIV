@@ -31,30 +31,59 @@ public class PackPlannerTests
         Assert.Equal(1000u, plan.DresserSetItemId);
     }
 
-    [Fact]
-    public void DyedPieceStaysInItsSlotByDefault()
+    private static PackChoice Choose(DresserSlot[] slots)
     {
-        var slots = new[] { Slot(0, 10), Slot(1, 11, stain: 5), Slot(2, 12) };
-
-        var plan = Plan(slots);
-        Assert.Equal([10u, 12u], plan.Pieces.Select(p => p.ItemId));
-        Assert.Equal(new SkippedPiece(Body, 11, SkipReason.Dyed), plan.Skipped.Single());
-
-        var withDyed = Plan(slots, includeDyed: true);
-        Assert.Equal(3, withDyed.Pieces.Count);
-        Assert.True(withDyed.Pieces.Single(p => p.ItemId == 11).Dyed);
-        Assert.Empty(withDyed.Skipped);
+        var report = DresserScan.Run(Catalog, slots, (_, _) => false);
+        return PackPlanner.Choose(report.Outfits.Single(o => o.Outfit.SetItemId == 1000));
     }
 
     [Fact]
-    public void UndyedCopyIsTakenFirst()
+    public void PieceOnlyThereDyedIsAskedAbout()
     {
-        var plan = Plan([Slot(0, 10), Slot(1, 11, stain: 5), Slot(2, 11), Slot(3, 12)]);
+        var choice = Choose([Slot(0, 10), Slot(1, 11, stain: 5), Slot(2, 12)]);
 
-        var body = plan.Pieces.Single(p => p.ItemId == 11);
+        // Sans les teintes : le corps reste dans sa case.
+        Assert.Equal([10u, 12u], choice.Undyed.Pieces.Select(p => p.ItemId));
+        Assert.Equal(new SkippedPiece(Body, 11, SkipReason.Dyed), choice.Undyed.Skipped.Single());
+
+        // Avec : les trois pièces, et la question porte sur le corps seul.
+        Assert.Equal(3, choice.WithDyed.Pieces.Count);
+        Assert.Empty(choice.WithDyed.Skipped);
+        Assert.True(choice.AsksAboutDyed);
+        Assert.Equal([11u], choice.DyedOnly.Select(p => p.ItemId));
+        Assert.Same(choice.Undyed, choice.Main);
+    }
+
+    [Fact]
+    public void UndyedCopyIsTakenFirstWithoutAsking()
+    {
+        var choice = Choose([Slot(0, 10), Slot(1, 11, stain: 5), Slot(2, 11), Slot(3, 12)]);
+
+        var body = choice.Undyed.Pieces.Single(p => p.ItemId == 11);
         Assert.False(body.Dyed);
         Assert.False(body.AllowDyed);
-        Assert.Empty(plan.Skipped);
+        Assert.Empty(choice.Undyed.Skipped);
+        Assert.False(choice.AsksAboutDyed);
+    }
+
+    [Fact]
+    public void OneCopyPerPieceEvenWithDuplicates()
+    {
+        var choice = Choose([Slot(0, 10), Slot(1, 10), Slot(2, 10, stain: 3), Slot(3, 11), Slot(4, 11)]);
+
+        Assert.Equal([10u, 11u], choice.Undyed.Pieces.Select(p => p.ItemId));
+        Assert.Equal(2, choice.Undyed.PrismCost);
+    }
+
+    [Fact]
+    public void EveryPieceDyedStillAsks()
+    {
+        var choice = Choose([Slot(0, 10, stain: 1), Slot(1, 11, stain: 2)]);
+
+        Assert.False(choice.Undyed.HasWork);
+        Assert.True(choice.AsksAboutDyed);
+        Assert.Same(choice.WithDyed, choice.Main);
+        Assert.Equal(2, choice.Main.PrismCost);
     }
 
     [Fact]
@@ -94,16 +123,6 @@ public class PackPlannerTests
         Assert.Equal([1_000_011u], plan.Pieces.Select(p => p.DresserItemId));
         Assert.Equal(new SkippedPiece(Hands, 12, SkipReason.OtherQuality), plan.Skipped.Single());
         Assert.Equal(1_001_000u, plan.DresserSetItemId);
-    }
-
-    [Fact]
-    public void NothingToDoWhenEveryPieceIsDyed()
-    {
-        var plan = Plan([Slot(0, 10, stain: 1), Slot(1, 11, stain: 2)]);
-
-        Assert.False(plan.HasWork);
-        Assert.Equal(0, plan.PrismCost);
-        Assert.Equal(2, plan.Skipped.Count);
     }
 
     [Fact]

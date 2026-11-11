@@ -24,8 +24,8 @@ ensemble (ou les ajoute à l'ensemble déjà rangé). Son infobulle dit à l'ava
 
 - **Prismes mirage** : le jeu en utilise jusqu'à un par pièce rangée dans un ensemble. Le bouton est grisé s'il t'en
   manque.
-- **Teintures** : le jeu retire la teinture des pièces qu'il range dans un ensemble. Les pièces teintes restent dans
-  leur case, sauf si tu coches « Regrouper aussi les pièces teintes » dans les réglages.
+- **Un seul exemplaire par pièce**, non teint en priorité. Si une pièce n'est dans la coiffeuse qu'en version teinte,
+  le plugin demande s'il doit la ranger aussi : le jeu retire la teinture des pièces qu'il range dans un ensemble.
 - **Qualité** : le jeu ne mélange pas pièces normales et de haute qualité dans un ensemble. Le plugin prend la qualité
   qui range le plus de pièces (ou celle de l'ensemble déjà rangé) ; les autres restent dans leur case.
 - Garde la coiffeuse ouverte : la fermer arrête tout. Si le jeu refuse de sortir une pièce (inventaire plein), les

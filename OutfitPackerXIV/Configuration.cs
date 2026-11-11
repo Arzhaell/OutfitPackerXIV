@@ -19,8 +19,5 @@ public class Configuration : IPluginConfiguration
     /// </summary>
     public bool ShowSinglePieces { get; set; }
 
-    /// <summary>Regrouper aussi les pièces teintes : le jeu retire leur teinture en les rangeant dans l'ensemble.</summary>
-    public bool IncludeDyedPieces { get; set; }
-
     public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
 }

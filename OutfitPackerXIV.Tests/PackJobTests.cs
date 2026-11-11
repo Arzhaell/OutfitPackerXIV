@@ -311,6 +311,19 @@ public class PackJobTests
     }
 
     [Fact]
+    public void AnsweringYesTakesTheDyedCopyOnlyWhenNoOtherIsLeft()
+    {
+        // Tête : seulement teinte. Corps : une teinte et une non teinte.
+        var game = Game(Slot(0, 10, stain0: 7), Slot(1, 11, stain1: 2), Slot(2, 11));
+
+        var result = Run(game, PlanFor(game, includeDyed: true));
+
+        Assert.Equal(2, result.StoredPieces);
+        Assert.Equal(["restore 0", "restore 2", "new 1000"], game.Calls);
+        Assert.Equal(Slot(1, 11, stain1: 2), game.Slots[1]);
+    }
+
+    [Fact]
     public void HighQualityPiecesMakeAHighQualityOutfit()
     {
         var game = Game(Slot(0, 1_000_010), Slot(1, 1_000_011), Slot(2, 12));

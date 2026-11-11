@@ -22,14 +22,20 @@ internal static class PackText
     };
 
     /// <summary>Pourquoi le bouton « Regrouper » est grisé, ou null s'il ne l'est pas.</summary>
-    public static string? WhyDisabled(PackPlan plan, bool busy, bool dresserOpen, int prisms)
+    public static string? WhyDisabled(PackChoice choice, bool busy, bool dresserOpen, int prisms)
     {
         if (busy)
             return Loc.T("Another outfit is being packed.", "Un autre ensemble est en cours de regroupement.");
         if (!dresserOpen)
             return Loc.T("Open the Glamour Dresser first.", "Ouvre d'abord la coiffeuse.");
+        return WhyNot(choice.Main, prisms);
+    }
+
+    /// <summary>Pourquoi ce regroupement n'est pas possible, ou null s'il l'est.</summary>
+    public static string? WhyNot(PackPlan plan, int prisms)
+    {
         if (!plan.HasWork)
-            return Loc.T("No piece to store with the current settings.", "Aucune pièce à ranger avec les réglages actuels.");
+            return Loc.T("No piece to store.", "Aucune pièce à ranger.");
         if (prisms < plan.PrismCost)
         {
             return Loc.T(
@@ -41,8 +47,9 @@ internal static class PackText
     }
 
     /// <summary>Ce que le bouton « Regrouper » va faire.</summary>
-    public static IEnumerable<string> Describe(PackPlan plan, int prisms, ItemInfo items)
+    public static IEnumerable<string> Describe(PackChoice choice, int prisms, ItemInfo items)
     {
+        var plan = choice.Main;
         if (plan.HasWork)
         {
             var count = Pieces(plan.Pieces.Count);
@@ -59,20 +66,53 @@ internal static class PackText
                 $"Utilise jusqu'à {plan.PrismCost} prismes mirage (un par pièce ; tu en as {prisms}).");
             if (plan.HighQuality)
                 yield return Loc.T("High-quality pieces: stored in a high-quality outfit.", "Pièces de haute qualité : rangées dans un ensemble HQ.");
-
-            var dyed = plan.Pieces.Where(p => p.Dyed).Select(p => items.Name(p.ItemId)).ToArray();
-            if (dyed.Length > 0)
-                yield return Loc.T("The game removes the dye of: ", "Le jeu retire la teinture de : ") + string.Join(", ", dyed);
         }
 
-        if (plan.Skipped.Count > 0)
+        if (choice.AsksAboutDyed)
         {
-            var skipped = plan.Skipped.Select(s => items.Name(s.ItemId) + " (" + (s.Reason == SkipReason.Dyed
-                ? Loc.T("dyed", "teinte")
-                : Loc.T("other quality", "autre qualité")) + ")");
-            yield return Loc.T("Left in their slot: ", "Restent dans leur case : ") + string.Join(", ", skipped);
+            var one = choice.DyedOnly.Count == 1;
+            yield return Loc.T("Only dyed in the dresser: ", one ? "Seulement teinte dans la coiffeuse : " : "Seulement teintes dans la coiffeuse : ")
+                + Names(choice.DyedOnly, items) + ". "
+                + (one
+                    ? Loc.T("It will ask you whether to store it too (the game removes its dye).", "Il te demandera s'il faut la ranger aussi (le jeu retire sa teinture).")
+                    : Loc.T("It will ask you whether to store them too (the game removes their dye).", "Il te demandera s'il faut les ranger aussi (le jeu retire leur teinture)."));
         }
+
+        var otherQuality = plan.Skipped.Where(s => s.Reason == SkipReason.OtherQuality).Select(s => items.Name(s.ItemId)).ToArray();
+        if (otherQuality.Length > 0)
+            yield return Loc.T("Left in their slot (other quality): ", "Restent dans leur case (autre qualité) : ") + string.Join(", ", otherQuality);
     }
+
+    public static string DyedQuestionTitle => Loc.T("Dyed pieces", "Pièces teintes");
+
+    /// <summary>La question posée quand des pièces ne sont là que teintes.</summary>
+    public static string DyedQuestion(PackChoice choice, ItemInfo items)
+    {
+        var name = items.Name(choice.WithDyed.Outfit.SetItemId);
+        var one = choice.DyedOnly.Count == 1;
+        var pieces = Names(choice.DyedOnly, items);
+        return Loc.T($"Outfit “{name}”: ", $"Ensemble « {name} » : ")
+            + (one
+                ? Loc.T($"{pieces} is only in the dresser dyed.", $"{pieces} n'est dans la coiffeuse qu'en version teinte.")
+                : Loc.T($"{pieces} are only in the dresser dyed.", $"{pieces} ne sont dans la coiffeuse qu'en version teinte."))
+            + " " + Loc.T(
+                "The game removes the dye of the pieces it stores in an outfit.",
+                "Le jeu retire la teinture des pièces qu'il range dans un ensemble.");
+    }
+
+    public static string StoreDyedToo(PackChoice choice) => (choice.DyedOnly.Count == 1
+            ? Loc.T("Store it too", "La ranger aussi")
+            : Loc.T("Store them too", "Les ranger aussi"))
+        + $" ({Pieces(choice.WithDyed.Pieces.Count)})";
+
+    public static string LeaveDyed(PackChoice choice) => (choice.DyedOnly.Count == 1
+            ? Loc.T("Leave it in its slot", "La laisser dans sa case")
+            : Loc.T("Leave them in their slot", "Les laisser dans leur case"))
+        + $" ({Pieces(choice.Undyed.Pieces.Count)})";
+
+    public static string Cancel => Loc.T("Cancel", "Annuler");
+
+    private static string Names(IEnumerable<PlannedPiece> pieces, ItemInfo items) => string.Join(", ", pieces.Select(p => items.Name(p.ItemId)));
 
     /// <summary>Où en est le regroupement.</summary>
     public static string Progress(PackJob job, ItemInfo items)

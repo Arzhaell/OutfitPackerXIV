@@ -19,18 +19,23 @@ internal sealed class MainWindow : Window
 {
     public const string Key = "###OutfitPackerXIVMain";
 
+    private const string DyedQuestionId = "###dyedQuestion";
+
     private readonly Plugin plugin;
     private string search = string.Empty;
 
     // Listes triées par nom et pièces à ranger de chaque ensemble, recalculées quand la coiffeuse ou les réglages changent.
     private DresserReport? sortedFor;
     private bool sortedWithSinglePieces;
-    private bool sortedWithDyedPieces;
     private OutfitStatus[] complete = [];
     private OutfitStatus[] partial = [];
     private OutfitStatus[] addToStored = [];
     private OutfitStatus[] duplicates = [];
-    private Dictionary<uint, PackPlan> plans = [];
+    private Dictionary<uint, PackChoice> choices = [];
+
+    // L'ensemble dont des pièces ne sont là que teintes : la question s'ouvre à l'image suivante.
+    private PackChoice? dyedQuestion;
+    private bool openDyedQuestion;
 
     public MainWindow(Plugin plugin)
         : base("OutfitPackerXIV" + Key)
@@ -54,6 +59,7 @@ internal sealed class MainWindow : Window
 
     public override void Draw()
     {
+        DrawDyedQuestion();
         var report = plugin.Report;
         if (report == null)
         {
@@ -190,9 +196,9 @@ internal sealed class MainWindow : Window
             ? Loc.T($"{outfit.ExtraCopies} extra", $"{outfit.ExtraCopies} en trop")
             : outfit.FreedSlots > 0 ? $"−{PackText.Slots(outfit.FreedSlots)}" : Loc.T("no slot freed", "aucune case libérée");
 
-        if (!duplicatesOnly && plans.TryGetValue(setId, out var plan))
+        if (!duplicatesOnly && choices.TryGetValue(setId, out var choice))
         {
-            DrawPackButton(plan);
+            DrawPackButton(choice);
             ImGui.SameLine();
         }
 
@@ -223,13 +229,24 @@ internal sealed class MainWindow : Window
         }
     }
 
-    private void DrawPackButton(PackPlan plan)
+    private void DrawPackButton(PackChoice choice)
     {
-        var whyDisabled = PackText.WhyDisabled(plan, plugin.Job != null, plugin.DresserOpen, plugin.GlamourPrisms);
+        var whyDisabled = PackText.WhyDisabled(choice, plugin.Job != null, plugin.DresserOpen, plugin.GlamourPrisms);
         using (ImRaii.Disabled(whyDisabled != null))
         {
-            if (ImGui.SmallButton(Loc.T("Pack", "Regrouper") + $"###pack{plan.Outfit.SetItemId}"))
-                plugin.StartPack(plan);
+            if (ImGui.SmallButton(Loc.T("Pack", "Regrouper") + $"###pack{choice.Main.Outfit.SetItemId}"))
+            {
+                // Des pièces ne sont là que teintes : on demande avant (le jeu retirerait leur teinture).
+                if (choice.AsksAboutDyed)
+                {
+                    dyedQuestion = choice;
+                    openDyedQuestion = true;
+                }
+                else
+                {
+                    plugin.StartPack(choice.Undyed);
+                }
+            }
         }
 
         if (!ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
@@ -239,9 +256,71 @@ internal sealed class MainWindow : Window
         ImGui.PushTextWrapPos(ImGui.GetFontSize() * 30);
         if (whyDisabled != null)
             ImGui.TextColored(ImGuiColors.DalamudOrange, whyDisabled);
-        foreach (var line in PackText.Describe(plan, plugin.GlamourPrisms, Items))
+        foreach (var line in PackText.Describe(choice, plugin.GlamourPrisms, Items))
             ImGui.TextUnformatted(line);
         ImGui.PopTextWrapPos();
+    }
+
+    // Ouverte au niveau de la fenêtre (le bouton est dans une liste) : ranger aussi les pièces teintes, ou les laisser.
+    private void DrawDyedQuestion()
+    {
+        var id = PackText.DyedQuestionTitle + DyedQuestionId;
+        if (openDyedQuestion)
+        {
+            ImGui.OpenPopup(id, ImGuiPopupFlags.None);
+            openDyedQuestion = false;
+        }
+
+        if (dyedQuestion is not { } choice)
+            return;
+
+        ImGui.SetNextWindowPos(ImGui.GetWindowPos() + (ImGui.GetWindowSize() / 2), ImGuiCond.Appearing, new Vector2(0.5f));
+        using var popup = ImRaii.PopupModal(id, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings);
+        if (!popup.Success)
+        {
+            // Fermée sans réponse (fenêtre refermée entre-temps) : on oublie la question.
+            if (!ImGui.IsPopupOpen(id))
+                dyedQuestion = null;
+            return;
+        }
+
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 24);
+        ImGui.TextUnformatted(PackText.DyedQuestion(choice, Items));
+        ImGui.PopTextWrapPos();
+        ImGui.Spacing();
+
+        var blocked = plugin.Job != null
+            ? Loc.T("Another outfit is being packed.", "Un autre ensemble est en cours de regroupement.")
+            : plugin.DresserOpen ? null : Loc.T("Open the Glamour Dresser first.", "Ouvre d'abord la coiffeuse.");
+        var answered = DrawAnswer(PackText.StoreDyedToo(choice), choice.WithDyed, blocked)
+            | DrawAnswer(PackText.LeaveDyed(choice), choice.Undyed, blocked);
+        if (ImGui.Button(PackText.Cancel + "###cancel") || answered)
+        {
+            dyedQuestion = null;
+            ImGui.CloseCurrentPopup();
+        }
+    }
+
+    private bool DrawAnswer(string label, PackPlan plan, string? blocked)
+    {
+        var whyNot = blocked ?? PackText.WhyNot(plan, plugin.GlamourPrisms);
+        var clicked = false;
+        using (ImRaii.Disabled(whyNot != null))
+        {
+            if (ImGui.Button(label))
+            {
+                plugin.StartPack(plan);
+                clicked = true;
+            }
+        }
+
+        if (whyNot != null && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+        {
+            using var tooltip = ImRaii.Tooltip();
+            ImGui.TextUnformatted(whyNot);
+        }
+
+        return clicked;
     }
 
     private void DrawPiece(PieceStatus piece, bool duplicatesOnly)
@@ -314,17 +393,6 @@ internal sealed class MainWindow : Window
             "Storing them frees no slot (the outfit takes the piece's place), but the next pieces you get can join it.",
             "Les ranger ne libère aucune case (l'ensemble prend la place de la pièce), mais les prochaines pièces pourront le rejoindre."));
 
-        var dyedPieces = Config.IncludeDyedPieces;
-        if (ImGui.Checkbox(Loc.T("Also pack dyed pieces", "Regrouper aussi les pièces teintes"), ref dyedPieces))
-        {
-            Config.IncludeDyedPieces = dyedPieces;
-            Config.Save();
-        }
-
-        Tooltip(Loc.T(
-            "The game removes their dye when it stores them in an outfit. Otherwise they stay in their own slot.",
-            "Le jeu retire leur teinture en les rangeant dans l'ensemble. Sinon, elles restent dans leur case."));
-
         ImGui.Spacing();
         ImGui.SetNextItemWidth(160 * ImGuiHelpers.GlobalScale);
         var languages = new[] { (PluginLanguage.Auto, Loc.T("Automatic", "Automatique")), (PluginLanguage.English, "English"), (PluginLanguage.French, "Français") };
@@ -351,18 +419,16 @@ internal sealed class MainWindow : Window
 
     private void SortLists(DresserReport report)
     {
-        if (ReferenceEquals(sortedFor, report) && sortedWithSinglePieces == Config.ShowSinglePieces && sortedWithDyedPieces == Config.IncludeDyedPieces)
+        if (ReferenceEquals(sortedFor, report) && sortedWithSinglePieces == Config.ShowSinglePieces)
             return;
 
         sortedFor = report;
         sortedWithSinglePieces = Config.ShowSinglePieces;
-        sortedWithDyedPieces = Config.IncludeDyedPieces;
         complete = Sorted(report.Complete);
         partial = Sorted(report.Partial(Config.ShowSinglePieces));
         addToStored = Sorted(report.AddToStored);
         duplicates = Sorted(report.Duplicates);
-        plans = complete.Concat(partial).Concat(addToStored)
-            .ToDictionary(o => o.Outfit.SetItemId, o => PackPlanner.Plan(o, Config.IncludeDyedPieces));
+        choices = complete.Concat(partial).Concat(addToStored).ToDictionary(o => o.Outfit.SetItemId, PackPlanner.Choose);
     }
 
     // Plus grand gain d'abord, puis par nom.

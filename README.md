@@ -24,8 +24,8 @@ adds them to the stored one). Its tooltip tells what it will do beforehand.
 
 - **Glamour Prisms**: the game uses up to one per piece stored in an outfit. The button is greyed out if you do not
   have enough.
-- **Dyes**: the game removes the dye of the pieces it stores in an outfit. Dyed pieces stay in their own slot, unless
-  you tick “Also pack dyed pieces” in the settings.
+- **One copy per piece**, undyed first. If a piece is only in the dresser dyed, the plugin asks whether to store it
+  too: the game removes the dye of the pieces it stores in an outfit.
 - **Quality**: the game does not mix normal and high-quality pieces in one outfit. The plugin takes the quality that
   stores the most pieces (or the one of the stored outfit); the others stay in their slot.
 - Keep the dresser open: closing it stops everything. If the game refuses to take a piece out (full inventory), the

@@ -7,7 +7,7 @@ namespace OutfitPackerXIV;
 /// <summary>Pourquoi une pièce de la coiffeuse reste dans sa case.</summary>
 public enum SkipReason
 {
-    /// <summary>Teinte : le jeu retirerait sa teinture (option « inclure les pièces teintes »).</summary>
+    /// <summary>Il n'en reste que des exemplaires teints : le jeu retirerait la teinture (le plugin demande avant).</summary>
     Dyed,
 
     /// <summary>Pas de la même qualité (normale ou haute) que les autres pièces : le jeu ne les mélange pas.</summary>
@@ -57,10 +57,40 @@ public sealed class PackPlan
     public bool HasWork => Pieces.Count > 0;
 }
 
+/// <summary>
+/// Les deux façons de regrouper un ensemble : sans les pièces qui ne sont là que teintes, ou avec (le jeu retire leur
+/// teinture). Une seule pièce par colonne, un exemplaire non teint d'abord.
+/// </summary>
+public sealed class PackChoice
+{
+    public PackChoice(PackPlan undyed, PackPlan withDyed)
+    {
+        Undyed = undyed;
+        WithDyed = withDyed;
+    }
+
+    /// <summary>Sans les pièces qui ne sont là que teintes : elles restent dans leur case.</summary>
+    public PackPlan Undyed { get; }
+
+    /// <summary>Avec les pièces qui ne sont là que teintes.</summary>
+    public PackPlan WithDyed { get; }
+
+    /// <summary>Des pièces ne sont là que teintes : demander s'il faut les ranger quand même.</summary>
+    public bool AsksAboutDyed => DyedOnly.Count > 0;
+
+    /// <summary>Les pièces dont il ne reste que des exemplaires teints.</summary>
+    public IReadOnlyList<PlannedPiece> DyedOnly => WithDyed.Pieces.Where(p => p.Dyed).ToArray();
+
+    /// <summary>Ce qui sert à décrire le bouton : sans les teintes s'il y a de quoi faire, sinon avec.</summary>
+    public PackPlan Main => Undyed.HasWork ? Undyed : WithDyed;
+}
+
 /// <summary>Choisit les pièces à ranger dans un ensemble. Ne touche à rien.</summary>
 public static class PackPlanner
 {
-    /// <param name="includeDyed">Prendre aussi les pièces teintes (le jeu retire leur teinture).</param>
+    public static PackChoice Choose(OutfitStatus status) => new(Plan(status, includeDyed: false), Plan(status, includeDyed: true));
+
+    /// <param name="includeDyed">Prendre aussi les pièces qui ne sont là que teintes (le jeu retire leur teinture).</param>
     public static PackPlan Plan(OutfitStatus status, bool includeDyed)
     {
         var joinable = status.Pieces.Where(p => p.CanJoin).ToArray();
