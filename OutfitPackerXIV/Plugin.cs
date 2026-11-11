@@ -76,10 +76,10 @@ public sealed class Plugin : IDalamudPlugin
     /// <summary>Prismes mirage possédés (relu quand la fenêtre du plugin l'est).</summary>
     internal int GlamourPrisms { get; private set; }
 
-    /// <summary>Le regroupement en cours, un seul à la fois.</summary>
-    internal PackJob? Job { get; private set; }
+    /// <summary>L'action en cours dans la coiffeuse (regrouper, enlever des doublons), une seule à la fois.</summary>
+    internal IDresserJob? Job { get; private set; }
 
-    /// <summary>Le bilan du dernier regroupement, affiché jusqu'au suivant.</summary>
+    /// <summary>Le bilan de la dernière action, affiché jusqu'à la suivante.</summary>
     internal (string Text, bool Ok)? LastResult { get; private set; }
 
     internal void StartPack(PackPlan plan)
@@ -92,7 +92,18 @@ public sealed class Plugin : IDalamudPlugin
         Log.Information($"Packing outfit {plan.DresserSetItemId}: {plan.Pieces.Count} pieces ({string.Join(", ", plan.Pieces.Select(p => p.DresserItemId))}), new: {plan.IsNew}.");
     }
 
-    /// <summary>Ne plus sortir de pièce : celles déjà sorties sont rangées, puis le regroupement s'arrête.</summary>
+    internal void StartRemove(RemovePlan plan)
+    {
+        if (Job != null)
+            return;
+
+        LastResult = null;
+        Job = new RemoveJob(dresser, plan);
+        Log.Information($"Removing duplicates of outfit {plan.Outfit.SetItemId}: "
+            + string.Join(", ", plan.Copies.Select(c => c.DresserItemId + (c.Dyed ? $" dyed {c.Stain0}/{c.Stain1}" : string.Empty))) + ".");
+    }
+
+    /// <summary>Ne plus commencer d'action : un regroupement range les pièces déjà sorties, puis tout s'arrête.</summary>
     internal void StopPack() => Job?.Stop();
 
     public void SetLanguage(PluginLanguage language)
@@ -104,8 +115,10 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
-        if (Job != null)
-            Log.Warning($"Unloaded while packing outfit {Job.Plan.DresserSetItemId}: {Job.TakenOut} pieces taken out of the dresser.");
+        if (Job is PackJob pack)
+            Log.Warning($"Unloaded while packing outfit {pack.Plan.DresserSetItemId}: {pack.TakenOut} pieces taken out of the dresser.");
+        else if (Job is RemoveJob remove)
+            Log.Warning($"Unloaded while removing duplicates of outfit {remove.Plan.Outfit.SetItemId}: {remove.Removed} removed.");
         Job = null;
         CommandManager.RemoveHandler(CommandName);
         AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, GameDresser.AddonName, OnDresserOpened);
@@ -196,19 +209,35 @@ public sealed class Plugin : IDalamudPlugin
         }
         catch (Exception e)
         {
-            Log.Error(e, "Packing failed.");
+            Log.Error(e, "Dresser action failed.");
             Job.Abort(PackProblem.GameError);
         }
 
-        if (Job.Result is not { } result)
+        if (!Job.IsFinished)
             return;
 
-        var plan = Job.Plan;
+        var job = Job;
         Job = null;
-        Log.Information($"Packing outfit {plan.DresserSetItemId} ended: {result.Problem} (piece {result.ProblemItemId}), "
-            + $"{result.StoredPieces} stored, left in inventory: [{string.Join(", ", result.LeftInInventory)}], "
-            + $"no longer in the dresser: [{string.Join(", ", result.NoLongerInDresser)}].");
-        var (text, ok) = PackText.Result(plan, result, Items);
+        string text;
+        bool ok;
+        switch (job)
+        {
+            case PackJob { Result: { } result } pack:
+                Log.Information($"Packing outfit {pack.Plan.DresserSetItemId} ended: {result.Problem} (piece {result.ProblemItemId}), "
+                    + $"{result.StoredPieces} stored, left in inventory: [{string.Join(", ", result.LeftInInventory)}], "
+                    + $"no longer in the dresser: [{string.Join(", ", result.NoLongerInDresser)}].");
+                (text, ok) = PackText.Result(pack.Plan, result, Items);
+                break;
+            case RemoveJob { Result: { } result } remove:
+                Log.Information($"Removing duplicates of outfit {remove.Plan.Outfit.SetItemId} ended: {result.Problem} "
+                    + $"(piece {result.ProblemItemId}), {result.Removed} removed, "
+                    + $"no longer in the dresser: [{string.Join(", ", result.NoLongerInDresser)}].");
+                (text, ok) = PackText.RemoveResult(remove.Plan, result, Items);
+                break;
+            default:
+                return;
+        }
+
         LastResult = (text, ok);
         if (ok)
             ChatGui.Print(text, "OutfitPackerXIV");

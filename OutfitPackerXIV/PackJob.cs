@@ -39,6 +39,9 @@ public enum PackProblem
     /// <summary>Aucune pièce à ranger (ou plus aucune dans la coiffeuse).</summary>
     NothingToStore,
 
+    /// <summary>Aucun exemplaire en trop à enlever (ou plus aucun dans la coiffeuse).</summary>
+    NothingToRemove,
+
     NotEnoughPrisms,
 
     /// <summary>L'ensemble est déjà dans la coiffeuse : le jeu n'en accepte pas un second.</summary>
@@ -89,7 +92,7 @@ public sealed record PackResult(
 /// (case vidée, objet arrivé dans les sacs ou l'arsenal), puis range les pièces sorties dans l'ensemble. Il ne touche
 /// jamais aux objets qui étaient déjà dans l'inventaire. Appeler <see cref="Update"/> à chaque image du jeu.
 /// </summary>
-public sealed class PackJob
+public sealed class PackJob : IDresserJob
 {
     /// <summary>Délai laissé au jeu pour confirmer une action.</summary>
     public static readonly TimeSpan StepTimeout = TimeSpan.FromSeconds(10);
@@ -138,6 +141,8 @@ public sealed class PackJob
 
     /// <summary>Le résultat, une fois le regroupement fini.</summary>
     public PackResult? Result { get; private set; }
+
+    public bool IsFinished => Result != null;
 
     public bool StopRequested { get; private set; }
 

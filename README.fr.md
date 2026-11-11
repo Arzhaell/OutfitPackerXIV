@@ -34,6 +34,14 @@ ensemble (ou les ajoute à l'ensemble déjà rangé). Son infobulle dit à l'ava
   inventaire. Un message (dans la fenêtre et dans le chat) résume ce qui a été fait, et cite les pièces restées dans
   ton inventaire s'il y en a.
 
+## Enlever les doublons
+Dans l'onglet **En double**, le bouton **Enlever** sort de la coiffeuse les exemplaires en trop d'un ensemble, un à la
+fois, vers ton inventaire. Un exemplaire reste toujours pour chaque ensemble qui n'a pas encore la pièce (une pièce
+partagée entre deux ensembles en garde deux), et c'est le meilleur qui reste : non teint, de la bonne qualité. Le
+plugin ne jette rien : à toi de vendre, recycler ou jeter ce qui est sorti. Le jeu lie au personnage les objets qui
+sortent de la coiffeuse (plus de vente au marché). Mêmes arrêts que pour « Regrouper » : inventaire plein, coiffeuse
+fermée, Stop.
+
 En français et en anglais (suit la langue de Dalamud, réglable dans les réglages).
 
 ## Installation

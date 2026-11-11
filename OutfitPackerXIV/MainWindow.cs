@@ -32,6 +32,7 @@ internal sealed class MainWindow : Window
     private OutfitStatus[] addToStored = [];
     private OutfitStatus[] duplicates = [];
     private Dictionary<uint, PackChoice> choices = [];
+    private Dictionary<uint, RemovePlan> removals = [];
 
     // L'ensemble dont des pièces ne sont là que teintes : la question s'ouvre à l'image suivante.
     private PackChoice? dyedQuestion;
@@ -90,8 +91,8 @@ internal sealed class MainWindow : Window
             "These outfits are already in the dresser, and some of their pieces are still in their own slot.",
             "Ces ensembles sont déjà dans la coiffeuse, et certaines de leurs pièces sont encore dans leur propre case."));
         DrawTab(Loc.T("Duplicates", "En double"), duplicates, Loc.T(
-            "These pieces are in the dresser more than once, or already inside their stored outfit.",
-            "Ces pièces sont plusieurs fois dans la coiffeuse, ou déjà dans leur ensemble rangé."), duplicatesOnly: true);
+            "These pieces are in the dresser more than once, or already inside their stored outfit. “Remove” takes the extra copies out to your inventory.",
+            "Ces pièces sont plusieurs fois dans la coiffeuse, ou déjà dans leur ensemble rangé. « Enlever » sort les exemplaires en trop vers ton inventaire."), duplicatesOnly: true);
         DrawSettingsTab();
     }
 
@@ -201,6 +202,11 @@ internal sealed class MainWindow : Window
             DrawPackButton(choice);
             ImGui.SameLine();
         }
+        else if (duplicatesOnly && removals.TryGetValue(setId, out var removal))
+        {
+            DrawRemoveButton(removal);
+            ImGui.SameLine();
+        }
 
         Icon(Items.Icon(setId));
         ImGui.SameLine();
@@ -290,7 +296,7 @@ internal sealed class MainWindow : Window
         ImGui.Spacing();
 
         var blocked = plugin.Job != null
-            ? Loc.T("Another outfit is being packed.", "Un autre ensemble est en cours de regroupement.")
+            ? Loc.T("Another action is running in the dresser.", "Une autre action est en cours dans la coiffeuse.")
             : plugin.DresserOpen ? null : Loc.T("Open the Glamour Dresser first.", "Ouvre d'abord la coiffeuse.");
         var answered = DrawAnswer(PackText.StoreDyedToo(choice), choice.WithDyed, blocked)
             | DrawAnswer(PackText.LeaveDyed(choice), choice.Undyed, blocked);
@@ -323,6 +329,27 @@ internal sealed class MainWindow : Window
         return clicked;
     }
 
+    private void DrawRemoveButton(RemovePlan plan)
+    {
+        var whyDisabled = PackText.RemoveWhyDisabled(plan, plugin.Job != null, plugin.DresserOpen);
+        using (ImRaii.Disabled(whyDisabled != null))
+        {
+            if (ImGui.SmallButton(Loc.T($"Remove ({plan.Copies.Count})", $"Enlever ({plan.Copies.Count})") + $"###remove{plan.Outfit.SetItemId}"))
+                plugin.StartRemove(plan);
+        }
+
+        if (!ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            return;
+
+        using var tooltip = ImRaii.Tooltip();
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 30);
+        if (whyDisabled != null)
+            ImGui.TextColored(ImGuiColors.DalamudOrange, whyDisabled);
+        foreach (var line in PackText.DescribeRemoval(plan, Items))
+            ImGui.TextUnformatted(line);
+        ImGui.PopTextWrapPos();
+    }
+
     private void DrawPiece(PieceStatus piece, bool duplicatesOnly)
     {
         ImGui.TableNextRow();
@@ -340,9 +367,10 @@ internal sealed class MainWindow : Window
         ImGui.TableNextColumn();
         if (duplicatesOnly)
         {
+            // Une pièce partagée garde un exemplaire pour chacun de ses ensembles : il peut y en avoir moins en trop.
             ImGui.TextColored(ImGuiColors.DalamudOrange, piece.InOutfit
-                ? Loc.T($"in the outfit + {piece.ExtraCopies} in the dresser", $"dans l'ensemble + {piece.ExtraCopies} dans la coiffeuse")
-                : Loc.T($"{piece.Loose.Count} copies", $"{piece.Loose.Count} exemplaires"));
+                ? Loc.T($"in the outfit, {piece.ExtraCopies} extra in the dresser", $"dans l'ensemble, {piece.ExtraCopies} en trop dans la coiffeuse")
+                : Loc.T($"{piece.Loose.Count} copies, {piece.ExtraCopies} extra", $"{piece.Loose.Count} exemplaires, {piece.ExtraCopies} en trop"));
             return;
         }
 
@@ -429,6 +457,7 @@ internal sealed class MainWindow : Window
         addToStored = Sorted(report.AddToStored);
         duplicates = Sorted(report.Duplicates);
         choices = complete.Concat(partial).Concat(addToStored).ToDictionary(o => o.Outfit.SetItemId, PackPlanner.Choose);
+        removals = duplicates.ToDictionary(o => o.Outfit.SetItemId, RemovePlan.For);
     }
 
     // Plus grand gain d'abord, puis par nom.

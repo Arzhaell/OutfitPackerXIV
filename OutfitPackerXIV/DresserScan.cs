@@ -7,19 +7,23 @@ namespace OutfitPackerXIV;
 /// <summary>Une case de la coiffeuse telle que le jeu la donne : l'objet (0 si la case est vide) et ses deux teintures.</summary>
 public readonly record struct DresserSlot(int Index, uint ItemId, byte Stain0, byte Stain1);
 
-/// <summary>Un exemplaire d'une pièce rangé seul dans la coiffeuse (pas dans un ensemble).</summary>
-public readonly record struct LoosePiece(int Index, bool Dyed, bool HighQuality = false);
+/// <summary>Un exemplaire d'une pièce rangé seul dans la coiffeuse (pas dans un ensemble), avec ses deux teintures.</summary>
+public readonly record struct LoosePiece(int Index, byte Stain0, byte Stain1, bool HighQuality)
+{
+    public bool Dyed => Stain0 != 0 || Stain1 != 0;
+}
 
 /// <summary>Une pièce d'un ensemble, et où elle se trouve dans la coiffeuse.</summary>
 public sealed class PieceStatus
 {
-    public PieceStatus(int column, uint itemId, bool inOutfit, IReadOnlyList<LoosePiece> loose, IReadOnlyList<uint> sharedWith)
+    public PieceStatus(int column, uint itemId, bool inOutfit, IReadOnlyList<LoosePiece> loose, IReadOnlyList<uint> sharedWith, IReadOnlyList<LoosePiece> extra)
     {
         Column = column;
         ItemId = itemId;
         InOutfit = inOutfit;
         Loose = loose;
         SharedWith = sharedWith;
+        Extra = extra;
     }
 
     /// <summary>Colonne de la pièce dans l'ensemble (feuille MirageStoreSetItem).</summary>
@@ -42,8 +46,13 @@ public sealed class PieceStatus
     /// <summary>Seule dans la coiffeuse et pas encore dans l'ensemble : on peut l'y ranger.</summary>
     public bool CanJoin => !InOutfit && Loose.Count > 0;
 
-    /// <summary>Exemplaires en trop : tous si l'ensemble a déjà la pièce, sinon tous sauf un.</summary>
-    public int ExtraCopies => InOutfit ? Loose.Count : Math.Max(0, Loose.Count - 1);
+    /// <summary>
+    /// Exemplaires seuls en trop, qui peuvent sortir de la coiffeuse : un exemplaire reste pour chaque ensemble du jeu à
+    /// qui la pièce manque (rangé ou pas encore), le meilleur d'abord. La pièce partagée compte pour tous ses ensembles.
+    /// </summary>
+    public IReadOnlyList<LoosePiece> Extra { get; }
+
+    public int ExtraCopies => Extra.Count;
 }
 
 /// <summary>Un ensemble dont au moins une pièce est rangée seule dans la coiffeuse.</summary>
@@ -164,7 +173,7 @@ public static class DresserScan
 
             if (!loose.TryGetValue(itemId, out var copies))
                 loose[itemId] = copies = [];
-            copies.Add(new LoosePiece(slot.Index, slot.Stain0 != 0 || slot.Stain1 != 0, ItemIds.IsHighQuality(slot.ItemId)));
+            copies.Add(new LoosePiece(slot.Index, slot.Stain0, slot.Stain1, ItemIds.IsHighQuality(slot.ItemId)));
 
             foreach (var outfit in outfits)
             {
@@ -173,6 +182,7 @@ public static class DresserScan
             }
         }
 
+        var extra = loose.ToDictionary(l => l.Key, l => ExtraCopies(catalog, l.Key, l.Value, stored, isOutfitColumnStored));
         var result = new List<OutfitStatus>();
         foreach (var setItemId in outfitIds)
         {
@@ -185,7 +195,8 @@ public static class DresserScan
                 p.ItemId,
                 outfitIndex is { } i && isOutfitColumnStored(i, p.Column),
                 loose.TryGetValue(p.ItemId, out var copies) ? copies : [],
-                catalog.OutfitsWithPiece(p.ItemId).Where(o => o != outfit).Select(o => o.SetItemId).ToArray())).ToArray();
+                catalog.OutfitsWithPiece(p.ItemId).Where(o => o != outfit).Select(o => o.SetItemId).ToArray(),
+                extra.TryGetValue(p.ItemId, out var extraCopies) ? extraCopies : [])).ToArray();
 
             var status = new OutfitStatus(outfit, outfitIndex, pieces, isStored && ItemIds.IsHighQuality(storedSlot.ItemId));
             if (status.JoinablePieces > 0 || status.ExtraCopies > 0)
@@ -197,5 +208,42 @@ public static class DresserScan
             .ThenBy(o => o.MissingPieces)
             .ThenBy(o => o.Outfit.SetItemId)
             .ToArray());
+    }
+
+    // Un exemplaire reste pour chaque ensemble du jeu à qui la pièce manque, rangé ou pas encore : ainsi aucun ensemble ne
+    // perd la pièce, et elle reste toujours dans la coiffeuse (seule ou dans un ensemble). Les ensembles rangés d'abord,
+    // car leur qualité est imposée ; puis le meilleur exemplaire : non teint, puis de qualité normale.
+    private static IReadOnlyList<LoosePiece> ExtraCopies(
+        OutfitCatalog catalog,
+        uint itemId,
+        List<LoosePiece> copies,
+        Dictionary<uint, DresserSlot> stored,
+        Func<int, int, bool> isOutfitColumnStored)
+    {
+        var needers = new List<(bool IsStored, bool HighQuality)>();
+        foreach (var outfit in catalog.OutfitsWithPiece(itemId))
+        {
+            var column = outfit.Pieces.First(p => p.ItemId == itemId).Column;
+            if (!stored.TryGetValue(outfit.SetItemId, out var slot))
+                needers.Add((false, false));
+            else if (!isOutfitColumnStored(slot.Index, column))
+                needers.Add((true, ItemIds.IsHighQuality(slot.ItemId)));
+        }
+
+        var remaining = copies.ToList();
+        foreach (var (isStored, highQuality) in needers.OrderByDescending(n => n.IsStored))
+        {
+            if (remaining.Count == 0)
+                break;
+
+            var kept = remaining
+                .OrderBy(c => isStored && c.HighQuality != highQuality)
+                .ThenBy(c => c.Dyed)
+                .ThenBy(c => c.HighQuality)
+                .First();
+            remaining.Remove(kept);
+        }
+
+        return remaining;
     }
 }

@@ -137,6 +137,59 @@ public class DresserScanTests
     }
 
     [Fact]
+    public void SharedPieceKeepsOneCopyPerOutfit()
+    {
+        // Le corps 11 fait partie de A et de B : deux exemplaires, un pour chacun, aucun en trop.
+        var report = Scan(Dresser(11, 11));
+
+        Assert.All(report.Outfits, o => Assert.Equal(0, o.ExtraCopies));
+        Assert.Empty(report.Duplicates);
+    }
+
+    [Fact]
+    public void ThirdCopyOfASharedPieceIsExtra()
+    {
+        var report = Scan(Dresser(11, 11, 11));
+
+        Assert.Equal(1, Status(report, 1000).Pieces.Single(p => p.ItemId == 11).ExtraCopies);
+        Assert.Equal(1, Status(report, 2000).Pieces.Single(p => p.ItemId == 11).ExtraCopies);
+    }
+
+    [Fact]
+    public void SharedPieceInOneStoredOutfitIsStillNeededByTheOther()
+    {
+        // A est rangé avec son corps ; le corps seul reste nécessaire à B, qui n'est pas rangé.
+        var report = Scan(Dresser(1000, 11), (index, column) => index == 0 && column == Body);
+
+        // A n'a rien à ajouter et rien en trop : il n'est pas listé. B peut prendre le corps.
+        Assert.DoesNotContain(report.Outfits, o => o.Outfit.SetItemId == 1000);
+        Assert.Empty(report.Duplicates);
+        Assert.True(Status(report, 2000).Pieces.Single(p => p.ItemId == 11).CanJoin);
+    }
+
+    [Fact]
+    public void UndyedCopyIsKeptAndTheDyedOneIsExtra()
+    {
+        DresserSlot[] slots = [new(0, 10, 3, 0), new(1, 10, 0, 0)];
+
+        var head = Status(Scan(slots), 1000).Pieces.Single(p => p.ItemId == 10);
+
+        Assert.Equal(0, head.Extra.Single().Index);
+        Assert.True(head.Extra.Single().Dyed);
+    }
+
+    [Fact]
+    public void StoredHighQualityOutfitKeepsTheHighQualityCopy()
+    {
+        // Ensemble A rangé en HQ sans sa tête : seule une tête HQ pourra le rejoindre, la tête normale est en trop.
+        var report = Scan(Dresser(1_001_000, 10, 1_000_010), (index, column) => index == 0 && column != Head);
+
+        var head = Status(report, 1000).Pieces.Single(p => p.ItemId == 10);
+        Assert.Equal(1, head.Extra.Single().Index);
+        Assert.False(head.Extra.Single().HighQuality);
+    }
+
+    [Fact]
     public void StoredOutfitWithNothingToAddIsLeftOut()
     {
         var report = Scan(Dresser(1000), (_, _) => true);

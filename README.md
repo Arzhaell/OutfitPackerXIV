@@ -34,6 +34,13 @@ adds them to the stored one). Its tooltip tells what it will do beforehand.
   inventory. A message (in the window and in the chat) sums up what was done, and lists any piece left in your
   inventory.
 
+## Removing duplicates
+In the **Duplicates** tab, the **Remove** button takes the extra copies of an outfit's pieces out of the dresser, one
+at a time, into your inventory. One copy always stays for each outfit that does not have the piece yet (a piece shared
+by two outfits keeps two), and the best one stays: undyed, of the right quality. The plugin never throws anything
+away: selling, desynthesizing or discarding is up to you. The game binds items taken out of the dresser to your
+character (no more market board). Same stops as “Pack”: full inventory, dresser closed, Stop.
+
 Available in English and French (follows Dalamud's language, can be forced in the settings).
 
 ## Installing
