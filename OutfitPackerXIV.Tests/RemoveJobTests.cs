@@ -84,10 +84,54 @@ public class RemoveJobTests
 
         var result = Run(game, PlanFor(game));
 
-        Assert.Equal(PackProblem.RestoreRefused, result.Problem);
+        Assert.Equal(PackProblem.InventoryFull, result.Problem);
         Assert.Equal(10u, result.ProblemItemId);
         Assert.Equal(1, result.Removed);
+        Assert.Equal(1 + PackJob.RestoreAttempts, game.Calls.Count);
         Assert.Equal(2, game.Slots.Count(s => s.ItemId == 10));
+    }
+
+    [Fact]
+    public void RefusalJustAfterAnActionIsRetried()
+    {
+        var game = Game(Slot(0, 10), Slot(1, 10), Slot(2, 10));
+        game.RefuseNextRestores = PackJob.RestoreAttempts - 1;
+
+        var result = Run(game, PlanFor(game));
+
+        Assert.Equal(PackProblem.None, result.Problem);
+        Assert.Equal(2, result.Removed);
+        Assert.Equal(PackJob.RestoreAttempts + 1, game.Calls.Count);
+        Assert.Single(game.Slots, s => s.ItemId == 10);
+    }
+
+    [Fact]
+    public void RefusalWithRoomLeftIsNotAFullInventory()
+    {
+        var game = Game(Slot(0, 10), Slot(1, 10));
+        game.RefuseAllRestores = true;
+
+        var result = Run(game, PlanFor(game));
+
+        Assert.Equal(PackProblem.RestoreRefused, result.Problem);
+        Assert.Equal(PackJob.RestoreAttempts, game.Calls.Count);
+        Assert.Equal(0, result.Removed);
+    }
+
+    [Fact]
+    public void StopDuringARetryEndsAtOnce()
+    {
+        var game = Game(Slot(0, 10), Slot(1, 10));
+        game.RefuseNextRestores = 1;
+
+        var result = Run(game, PlanFor(game), job =>
+        {
+            if (game.Calls.Count == 1)
+                job.Stop();
+        });
+
+        Assert.Equal(PackProblem.Stopped, result.Problem);
+        Assert.Single(game.Calls);
     }
 
     [Fact]

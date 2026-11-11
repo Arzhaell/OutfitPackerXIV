@@ -84,6 +84,7 @@ public sealed class RemoveJob : IDresserJob
     private Step step = Step.Start;
     private int next;
     private int removed;
+    private int refusals;
     private TimeSpan readyAt;
     private TimeSpan waitStart;
     private TimeSpan? notLoadedSince;
@@ -191,11 +192,20 @@ public sealed class RemoveJob : IDresserJob
         pendingBagBefore = game.ReadBags().Where(b => IsCopy(b, copy)).Select(b => b.Position).ToHashSet();
         if (!game.Restore(index))
         {
-            // Inventaire plein, le plus souvent : les suivants ne sortiraient pas non plus.
-            Finish(PackProblem.RestoreRefused, copy.ItemId);
+            // Le jeu refuse parfois une sortie juste après la précédente, puis l'accepte : on réessaie avant d'abandonner.
+            if (++refusals < PackJob.RestoreAttempts)
+            {
+                next--;
+                readyAt = now + PackJob.RetryDelay;
+                return;
+            }
+
+            // Toujours refusé : les suivants ne sortiraient sans doute pas non plus.
+            Finish(PackJob.RefusalProblem(game), copy.ItemId);
             return;
         }
 
+        refusals = 0;
         pending = copy;
         step = Step.Wait;
         waitStart = now;

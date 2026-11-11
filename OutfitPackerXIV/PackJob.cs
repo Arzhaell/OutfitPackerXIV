@@ -22,7 +22,13 @@ public interface IDresserGame
     /// <summary>Prismes mirage possédés.</summary>
     int GlamourPrisms { get; }
 
-    /// <summary>Demande au jeu de sortir l'objet de cette case. Faux si le jeu refuse (inventaire plein, objet unique…).</summary>
+    /// <summary>Cases vides dans les quatre sacs de l'inventaire.</summary>
+    int EmptyBagSlots { get; }
+
+    /// <summary>
+    /// Demande au jeu de sortir l'objet de cette case. Faux si le jeu refuse : coiffeuse pas prête, pas de place, objet
+    /// unique déjà possédé.
+    /// </summary>
     bool Restore(int index);
 
     /// <summary>Demande au jeu de ranger ces pièces dans un nouvel ensemble. Faux si le jeu refuse.</summary>
@@ -53,8 +59,11 @@ public enum PackProblem
     /// <summary>La coiffeuse s'est fermée (ou le jeu a oublié son contenu, au changement de zone).</summary>
     DresserClosed,
 
-    /// <summary>Le jeu a refusé de sortir une pièce (inventaire plein, objet unique déjà possédé…).</summary>
+    /// <summary>Le jeu a refusé plusieurs fois de sortir une pièce alors que l'inventaire a de la place (objet unique…).</summary>
     RestoreRefused,
+
+    /// <summary>Le jeu a refusé plusieurs fois de sortir une pièce, et l'inventaire est plein.</summary>
+    InventoryFull,
 
     /// <summary>Le jeu n'a pas confirmé une action à temps.</summary>
     Timeout,
@@ -100,6 +109,19 @@ public sealed class PackJob : IDresserJob
     /// <summary>Pause entre deux actions, pour ne pas presser le serveur.</summary>
     public static readonly TimeSpan PauseBetweenActions = TimeSpan.FromMilliseconds(500);
 
+    /// <summary>
+    /// Essais avant d'abandonner une sortie refusée. Le jeu en refuse parfois une juste après l'action précédente, puis
+    /// l'accepte (vu en jeu le 2026-11-11 : à chaque fois, un nouveau clic quelques secondes après a réussi).
+    /// </summary>
+    public const int RestoreAttempts = 3;
+
+    /// <summary>Attente avant de réessayer une sortie refusée.</summary>
+    public static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(1);
+
+    /// <summary>Pourquoi le jeu refuse encore une sortie après tous les essais.</summary>
+    internal static PackProblem RefusalProblem(IDresserGame game) =>
+        game.EmptyBagSlots == 0 ? PackProblem.InventoryFull : PackProblem.RestoreRefused;
+
     private enum Step
     {
         Start,
@@ -114,6 +136,7 @@ public sealed class PackJob : IDresserJob
     private readonly List<uint> notFound = [];
     private Step step = Step.Start;
     private int nextPiece;
+    private int refusals;
     private TimeSpan readyAt;
     private TimeSpan waitStart;
     private TimeSpan? notLoadedSince;
@@ -260,13 +283,21 @@ public sealed class PackJob : IDresserJob
         pendingBagBefore = game.ReadBags().Where(b => IsCopyOf(b, piece)).Select(b => b.Position).ToHashSet();
         if (!game.Restore(index))
         {
-            // Inventaire plein, le plus souvent : les pièces suivantes ne sortiraient pas non plus.
-            Soft(PackProblem.RestoreRefused, piece.ItemId);
+            if (++refusals < RestoreAttempts)
+            {
+                nextPiece--;
+                readyAt = now + RetryDelay;
+                return;
+            }
+
+            // Toujours refusée : les pièces suivantes ne sortiraient sans doute pas non plus.
+            Soft(RefusalProblem(game), piece.ItemId);
             nextPiece = Plan.Pieces.Count;
             step = Step.Store;
             return;
         }
 
+        refusals = 0;
         pending = piece;
         step = Step.WaitRestore;
         waitStart = now;

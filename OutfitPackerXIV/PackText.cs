@@ -244,8 +244,11 @@ internal static class PackText
             PackProblem.OutfitNotFound => Loc.T("The outfit is no longer in the dresser.", "L'ensemble n'est plus dans la coiffeuse."),
             PackProblem.DresserClosed => Loc.T("The Glamour Dresser was closed.", "La coiffeuse a été fermée."),
             PackProblem.RestoreRefused => Loc.T(
-                $"The game refused to take {piece} out of the dresser (inventory full, or a unique item you already have).",
-                $"Le jeu a refusé de sortir {piece} de la coiffeuse (inventaire plein, ou objet unique déjà possédé)."),
+                $"The game refused three times to take {piece} out of the dresser (a unique item you already have?). Try again in a moment.",
+                $"Le jeu a refusé trois fois de sortir {piece} de la coiffeuse (objet unique que tu as déjà ?). Réessaie dans un instant."),
+            PackProblem.InventoryFull => Loc.T(
+                $"Your inventory is full: {piece} could not leave the dresser.",
+                $"Ton inventaire est plein : {piece} n'a pas pu sortir de la coiffeuse."),
             PackProblem.Timeout => Loc.T("The game did not confirm in time.", "Le jeu n'a pas confirmé à temps.")
                 + (problemItemId != 0 ? Loc.T($" Check where {piece} is.", $" Vérifie où est {piece}.") : string.Empty),
             PackProblem.NotFullCondition => Loc.T(

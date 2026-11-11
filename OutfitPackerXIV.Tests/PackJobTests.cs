@@ -139,12 +139,53 @@ public class PackJobTests
 
         var result = Run(game, PlanFor(game));
 
-        Assert.Equal(PackProblem.RestoreRefused, result.Problem);
+        Assert.Equal(PackProblem.InventoryFull, result.Problem);
         Assert.Equal(12u, result.ProblemItemId);
         Assert.Equal(2, result.StoredPieces);
         Assert.Empty(result.LeftInInventory);
-        Assert.Equal(["restore 0", "restore 1", "restore 2", "new 1000"], game.Calls);
+        Assert.Equal(["restore 0", "restore 1", "restore 2", "restore 2", "restore 2", "new 1000"], game.Calls);
         Assert.Contains(game.Slots, s => s.ItemId == 12);
+    }
+
+    [Fact]
+    public void RefusalJustAfterAnActionIsRetried()
+    {
+        var game = Game(Slot(0, 10), Slot(1, 11), Slot(2, 12));
+        game.RefuseNextRestores = PackJob.RestoreAttempts - 1;
+
+        var result = Run(game, PlanFor(game));
+
+        Assert.Equal(PackProblem.None, result.Problem);
+        Assert.Equal(3, result.StoredPieces);
+        Assert.Equal(["restore 0", "restore 0", "restore 0", "restore 1", "restore 2", "new 1000"], game.Calls);
+    }
+
+    [Fact]
+    public void EachPieceGetsItsOwnAttempts()
+    {
+        // Chaque pièce est refusée deux fois, puis acceptée : aucune n'épuise ses essais.
+        var game = Game(Slot(0, 10), Slot(1, 11), Slot(2, 12));
+        game.RefuseEachSlot = PackJob.RestoreAttempts - 1;
+
+        var result = Run(game, PlanFor(game));
+
+        Assert.Equal(PackProblem.None, result.Problem);
+        Assert.Equal(3, result.StoredPieces);
+        Assert.Equal(3 * PackJob.RestoreAttempts + 1, game.Calls.Count);
+    }
+
+    [Fact]
+    public void RefusalWithRoomLeftIsNotAFullInventory()
+    {
+        var game = Game(Slot(0, 10), Slot(1, 11), Slot(2, 12));
+        game.RefuseAllRestores = true;
+
+        var result = Run(game, PlanFor(game));
+
+        Assert.Equal(PackProblem.RestoreRefused, result.Problem);
+        Assert.Equal(10u, result.ProblemItemId);
+        Assert.Equal(0, result.StoredPieces);
+        Assert.Equal(["restore 0", "restore 0", "restore 0"], game.Calls);
     }
 
     [Fact]

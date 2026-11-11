@@ -25,6 +25,12 @@ internal sealed unsafe class GameDresser : IDresserGame
         InventoryType.ArmoryNeck, InventoryType.ArmoryWrist, InventoryType.ArmoryRings,
     ];
 
+    // Les quatre sacs de l'inventaire.
+    private static readonly InventoryType[] Inventories =
+    [
+        InventoryType.Inventory1, InventoryType.Inventory2, InventoryType.Inventory3, InventoryType.Inventory4,
+    ];
+
     public bool IsDresserOpen => Plugin.GameGui.GetAddonByName(AddonName) is { IsNull: false, IsVisible: true };
 
     /// <summary>
@@ -99,10 +105,47 @@ internal sealed unsafe class GameDresser : IDresserGame
         }
     }
 
+    public int EmptyBagSlots
+    {
+        get
+        {
+            var inventory = InventoryManager.Instance();
+            if (inventory == null)
+                return 0;
+
+            var empty = 0;
+            foreach (var type in Inventories)
+            {
+                var container = inventory->GetInventoryContainer(type);
+                if (container == null || !container->IsLoaded)
+                    continue;
+
+                for (var i = 0; i < container->Size; i++)
+                {
+                    var item = container->GetInventorySlot(i);
+                    if (item != null && item->ItemId == 0)
+                        empty++;
+                }
+            }
+
+            return empty;
+        }
+    }
+
+    // Lu dans le code du jeu : il refuse sans rien dire si la coiffeuse n'est pas « demandée » et « chargée », et affiche
+    // son propre message dans le chat s'il n'y a pas de place (sacs et arsenal) ou si l'objet est unique et déjà possédé.
     public bool Restore(int index)
     {
         var manager = MirageManager.Instance();
-        return manager != null && manager->RestorePrismBoxItem((uint)index);
+        if (manager == null)
+            return false;
+        if (manager->RestorePrismBoxItem((uint)index))
+            return true;
+
+        Plugin.Log.Information(
+            $"The game refused to take slot {index} out of the dresser (requested: {manager->PrismBoxRequested}, " +
+            $"loaded: {manager->PrismBoxLoaded}, empty inventory slots: {EmptyBagSlots}).");
+        return false;
     }
 
     public bool StoreNew(uint dresserSetItemId, uint[] containers, ushort[] slots)

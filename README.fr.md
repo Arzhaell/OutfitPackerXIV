@@ -28,8 +28,9 @@ ensemble (ou les ajoute à l'ensemble déjà rangé). Son infobulle dit à l'ava
   le plugin demande s'il doit la ranger aussi : le jeu retire la teinture des pièces qu'il range dans un ensemble.
 - **Qualité** : le jeu ne mélange pas pièces normales et de haute qualité dans un ensemble. Le plugin prend la qualité
   qui range le plus de pièces (ou celle de l'ensemble déjà rangé) ; les autres restent dans leur case.
-- Garde la coiffeuse ouverte : la fermer arrête tout. Si le jeu refuse de sortir une pièce (inventaire plein), les
-  pièces déjà sorties sont rangées dans l'ensemble. **Stop** (ou fermer la fenêtre du plugin) fait de même.
+- Garde la coiffeuse ouverte : la fermer arrête tout. Le jeu refuse parfois de sortir une pièce juste après l'action
+  précédente : le plugin réessaie quelques fois. S'il refuse toujours (inventaire plein), les pièces déjà sorties sont
+  rangées dans l'ensemble. **Stop** (ou fermer la fenêtre du plugin) fait de même.
 - Le plugin n'utilise que les pièces qu'il vient de sortir de la coiffeuse, jamais les objets qui étaient déjà dans ton
   inventaire. Un message (dans la fenêtre et dans le chat) résume ce qui a été fait, et cite les pièces restées dans
   ton inventaire s'il y en a.

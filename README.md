@@ -28,8 +28,9 @@ adds them to the stored one). Its tooltip tells what it will do beforehand.
   too: the game removes the dye of the pieces it stores in an outfit.
 - **Quality**: the game does not mix normal and high-quality pieces in one outfit. The plugin takes the quality that
   stores the most pieces (or the one of the stored outfit); the others stay in their slot.
-- Keep the dresser open: closing it stops everything. If the game refuses to take a piece out (full inventory), the
-  pieces already out are stored in the outfit. **Stop** (or closing the plugin window) does the same.
+- Keep the dresser open: closing it stops everything. The game sometimes refuses to take a piece out right after the
+  previous action: the plugin tries again a few times. If it still refuses (full inventory), the pieces already out are
+  stored in the outfit. **Stop** (or closing the plugin window) does the same.
 - The plugin only uses the pieces it has just taken out of the dresser, never the items that were already in your
   inventory. A message (in the window and in the chat) sums up what was done, and lists any piece left in your
   inventory.

@@ -52,6 +52,17 @@ internal sealed class FakeGame : IDresserGame
 
     public int BagCapacity { get; set; } = 140;
 
+    /// <summary>Le jeu refuse les prochaines sorties, puis les accepte (comme juste après une action, en jeu).</summary>
+    public int RefuseNextRestores { get; set; }
+
+    /// <summary>Le jeu refuse toutes les sorties alors qu'il y a de la place (objet unique déjà possédé).</summary>
+    public bool RefuseAllRestores { get; set; }
+
+    /// <summary>Le jeu refuse ce nombre de fois la sortie de chaque case, puis l'accepte.</summary>
+    public int RefuseEachSlot { get; set; }
+
+    private readonly Dictionary<int, int> refusedBySlot = [];
+
     /// <summary>Le conteneur où arrivent les pièces sorties (sacs ou arsenal).</summary>
     public uint RestoreContainer { get; set; } = Inventory1;
 
@@ -71,6 +82,8 @@ internal sealed class FakeGame : IDresserGame
     public bool IsDresserOpen => DresserOpen;
 
     public int GlamourPrisms => Prisms;
+
+    public int EmptyBagSlots => BagCapacity - Bags.Count(b => b.Container == RestoreContainer);
 
     public IReadOnlyList<DresserSlot>? ReadSlots() => Loaded ? slots.ToArray() : null;
 
@@ -101,8 +114,19 @@ internal sealed class FakeGame : IDresserGame
     {
         Calls.Add($"restore {index}");
         var item = slots[index];
-        if (item.ItemId == 0 || Bags.Count(b => b.Container == RestoreContainer) >= BagCapacity)
+        if (item.ItemId == 0 || EmptyBagSlots <= 0 || RefuseAllRestores)
             return false;
+        if (RefuseNextRestores > 0)
+        {
+            RefuseNextRestores--;
+            return false;
+        }
+
+        if (refusedBySlot.GetValueOrDefault(index) < RefuseEachSlot)
+        {
+            refusedBySlot[index] = refusedBySlot.GetValueOrDefault(index) + 1;
+            return false;
+        }
 
         Send(() =>
         {
