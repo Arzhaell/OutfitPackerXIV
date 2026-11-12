@@ -3,8 +3,8 @@
     "Author": "Arzhael",
     "Name": "OutfitPackerXIV",
     "InternalName": "OutfitPackerXIV",
-    "AssemblyVersion": "0.1.0.0",
-    "Description": "When you open the Glamour Dresser, OutfitPackerXIV lists the pieces of gear that belong to the same outfit: complete outfits ready to be stored, incomplete ones with their missing pieces, outfits already stored that a loose piece can join, and duplicates. For each one, it shows how many dresser slots you would free.\nThis version only reads the dresser: it never moves anything.\nAvailable in English and French. Command: /outfitpacker",
+    "AssemblyVersion": "1.0.0.0",
+    "Description": "When you open the Glamour Dresser, OutfitPackerXIV lists the pieces of gear that belong to the same outfit: complete outfits ready to be stored, incomplete ones with their missing pieces, outfits already stored that a loose piece can join, and duplicates. For each one, it shows how many dresser slots you would free.\nThe Pack button stores an outfit for you: it takes its pieces out of the dresser one at a time, then stores them as an outfit (the game uses up to one Glamour Prism per piece and removes dyes: undyed copies come first, and it asks before taking a piece that is only there dyed).\nThe Remove button takes extra copies out of the dresser into your inventory, keeping one for each outfit that still needs the piece. It never throws anything away.\nAvailable in English and French. Command: /outfitpacker",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/Arzhaell/OutfitPackerXIV",
     "Tags": [
@@ -21,11 +21,11 @@
     "CanUnloadAsync": false,
     "LoadPriority": 0,
     "IconUrl": "https://raw.githubusercontent.com/Arzhaell/OutfitPackerXIV/main/images/icon.png",
-    "Punchline": "Finds the outfits you can store in the Glamour Dresser to free up its slots.",
+    "Punchline": "Finds the outfits you can store in the Glamour Dresser and packs them for you to free up its slots.",
     "AcceptsFeedback": true,
-    "DownloadLinkInstall": "https://github.com/Arzhaell/OutfitPackerXIV/releases/download/v0.1.0/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/Arzhaell/OutfitPackerXIV/releases/download/v0.1.0/latest.zip",
-    "DownloadLinkTesting": "https://github.com/Arzhaell/OutfitPackerXIV/releases/download/v0.1.0/latest.zip",
-    "LastUpdate": 1794353111
+    "DownloadLinkInstall": "https://github.com/Arzhaell/OutfitPackerXIV/releases/download/v1.0.0/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/Arzhaell/OutfitPackerXIV/releases/download/v1.0.0/latest.zip",
+    "DownloadLinkTesting": "https://github.com/Arzhaell/OutfitPackerXIV/releases/download/v1.0.0/latest.zip",
+    "LastUpdate": 1794497392
   }
 ]
