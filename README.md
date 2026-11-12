@@ -31,9 +31,21 @@ adds them to the stored one). Its tooltip tells what it will do beforehand.
 - Keep the dresser open: closing it stops everything. The game sometimes refuses to take a piece out right after the
   previous action: the plugin tries again a few times. If it still refuses (full inventory), the pieces already out are
   stored in the outfit. **Stop** (or closing the plugin window) does the same.
-- The plugin only uses the pieces it has just taken out of the dresser, never the items that were already in your
-  inventory. A message (in the window and in the chat) sums up what was done, and lists any piece left in your
+- “Pack” only uses the pieces it has just taken out of the dresser, never the items that were already in your
+  inventory (that is what the Inventory tab is for). A message (in the window and in the chat) sums up what was done, and lists any piece left in your
   inventory.
+
+## Storing from your inventory
+The **Inventory** tab lists the outfits with pieces in your bags or armory chest (never your equipped gear). A line at
+the top of the window tells you when there are some. The **Store** button stores those pieces as an outfit, or adds
+them to the stored one, directly: no need to put them in the dresser first. If other pieces of the outfit are in the
+dresser, it takes them out first, like “Pack”. When a piece is both in the dresser and in your inventory, the dresser
+copy is used: it frees a dresser slot, and the inventory copy can still be sold.
+
+The game wipes some things off a piece it stores in an outfit, so these pieces stay where they are, with the reason
+shown: pieces with **materia** (they would be destroyed), with a **glamour**, **used by one of your gear sets** (it
+would lose a piece), or not at 100% condition (the game refuses them: repair them first). Dyed pieces: same question as
+for “Pack”. Signed pieces are stored, and the tooltip warns that the crafter's signature goes away.
 
 ## Removing duplicates
 In the **Duplicates** tab, the **Remove** button takes the extra copies of an outfit's pieces out of the dresser, one

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 
 namespace OutfitPackerXIV;
 
@@ -80,19 +81,54 @@ internal sealed unsafe class GameDresser : IDresserGame
             for (var i = 0; i < container->Size; i++)
             {
                 var item = container->GetInventorySlot(i);
-                if (item == null || item->ItemId == 0)
+                if (item == null || item->ItemId == 0 || item->IsSymbolic)
                     continue;
+
+                var hasMateria = false;
+                foreach (var materia in item->Materia)
+                    hasMateria |= materia != 0;
 
                 items.Add(new BagItem(
                     (uint)type,
                     i,
                     item->ItemId,
                     item->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality),
-                    item->Condition));
+                    item->Condition,
+                    item->Stains[0],
+                    item->Stains[1],
+                    hasMateria,
+                    item->GlamourId != 0,
+                    item->CrafterContentId != 0));
             }
         }
 
         return items;
+    }
+
+    /// <summary>
+    /// Les objets que tes ensembles d'équipement utilisent (numéro sans la qualité) : le plugin ne les range jamais, sinon
+    /// il manquerait une pièce à l'ensemble d'équipement.
+    /// </summary>
+    public HashSet<uint> ReadGearsetItemIds()
+    {
+        var ids = new HashSet<uint>();
+        var module = RaptureGearsetModule.Instance();
+        if (module == null)
+            return ids;
+
+        foreach (ref var entry in module->Entries)
+        {
+            if (!entry.Flags.HasFlag(RaptureGearsetModule.GearsetFlag.Exists))
+                continue;
+
+            foreach (ref var item in entry.Items)
+            {
+                if (item.ItemId != 0)
+                    ids.Add(ItemIds.Base(item.ItemId));
+            }
+        }
+
+        return ids;
     }
 
     // Compté comme le jeu le fait avant de ranger un ensemble : sacs, équipement porté et arsenal.

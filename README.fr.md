@@ -31,9 +31,23 @@ ensemble (ou les ajoute à l'ensemble déjà rangé). Son infobulle dit à l'ava
 - Garde la coiffeuse ouverte : la fermer arrête tout. Le jeu refuse parfois de sortir une pièce juste après l'action
   précédente : le plugin réessaie quelques fois. S'il refuse toujours (inventaire plein), les pièces déjà sorties sont
   rangées dans l'ensemble. **Stop** (ou fermer la fenêtre du plugin) fait de même.
-- Le plugin n'utilise que les pièces qu'il vient de sortir de la coiffeuse, jamais les objets qui étaient déjà dans ton
-  inventaire. Un message (dans la fenêtre et dans le chat) résume ce qui a été fait, et cite les pièces restées dans
+- « Regrouper » n'utilise que les pièces qu'il vient de sortir de la coiffeuse, jamais les objets qui étaient déjà dans
+  ton inventaire (c'est le rôle de l'onglet Inventaire). Un message (dans la fenêtre et dans le chat) résume ce qui a été fait, et cite les pièces restées dans
   ton inventaire s'il y en a.
+
+## Ranger depuis l'inventaire
+L'onglet **Inventaire** liste les ensembles dont des pièces sont dans tes sacs ou ton arsenal (jamais l'équipement que
+tu portes). Une ligne en haut de la fenêtre te prévient quand il y en a. Le bouton **Ranger** range ces pièces en un
+ensemble, ou les ajoute à l'ensemble déjà rangé, directement : pas besoin de les mettre d'abord dans la coiffeuse. Si
+d'autres pièces de l'ensemble sont dans la coiffeuse, il les sort d'abord, comme « Regrouper ». Quand une pièce est à la
+fois dans la coiffeuse et dans ton inventaire, c'est celle de la coiffeuse qui est prise : elle y libère une case, et
+celle de l'inventaire reste vendable.
+
+Le jeu efface certaines choses d'une pièce qu'il range en ensemble : ces pièces restent donc à leur place, avec la
+raison affichée. Ce sont les pièces avec des **matérias** (elles seraient détruites), avec un **mirage projeté**,
+**utilisées par un de tes ensembles d'équipement** (il lui manquerait une pièce), ou pas à 100 % de condition (le jeu les
+refuse : répare-les d'abord). Pièces teintes : même question que pour « Regrouper ». Les pièces signées sont rangées, et
+l'infobulle prévient que la signature d'artisan disparaît.
 
 ## Enlever les doublons
 Dans l'onglet **En double**, le bouton **Enlever** sort de la coiffeuse les exemplaires en trop d'un ensemble, un à la

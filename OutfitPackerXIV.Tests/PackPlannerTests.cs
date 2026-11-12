@@ -143,4 +143,107 @@ public class PackPlannerTests
         Assert.Throws<ArgumentException>(() => StoreArguments.Build(Enumerable.Repeat(piece, 10).ToArray()));
         Assert.Equal(9, StoreArguments.Build(Enumerable.Repeat(piece, 9).ToArray()).Containers.Count(c => c == 0));
     }
+
+    private static BagItem Bag(int slot, uint itemId, bool hq = false) => new(0, slot, itemId, hq, BagItem.FullCondition);
+
+    private static PackChoice ChooseWithBags(DresserSlot[] slots, BagItem[] bags, Func<int, int, bool>? stored = null)
+    {
+        var report = DresserScan.Run(Catalog, slots, stored ?? ((_, _) => false), bags);
+        return PackPlanner.Choose(report.Outfits.Single(o => o.Outfit.SetItemId == 1000), useBags: true);
+    }
+
+    [Fact]
+    public void BagPiecesFillTheColumnsTheDresserLacks()
+    {
+        var plan = ChooseWithBags([Slot(0, 10)], [Bag(0, 11), Bag(1, 12)]).Main;
+
+        Assert.Equal([Head, Body, Hands], plan.Pieces.Select(p => p.Column));
+        Assert.Equal([10u], plan.ToRestore.Select(p => p.ItemId));
+        Assert.Equal([11u, 12u], plan.FromBags.Select(p => p.ItemId));
+        Assert.Equal(3, plan.PrismCost);
+
+        // La tête sort de la coiffeuse et le nouvel ensemble y prend une case : rien de libéré dans la coiffeuse.
+        Assert.Equal(0, plan.DresserSlotsFreed);
+        Assert.Equal(2, plan.BagSlotsFreed);
+    }
+
+    [Fact]
+    public void DresserCopyComesBeforeTheBagCopy()
+    {
+        var plan = ChooseWithBags([Slot(0, 10)], [Bag(0, 10)]).Main;
+
+        // La copie de l'inventaire reste vendable ; celle de la coiffeuse y libère une case.
+        Assert.Null(plan.Pieces.Single().Bag);
+    }
+
+    [Fact]
+    public void UndyedBagCopyComesBeforeADyedDresserCopy()
+    {
+        var choice = ChooseWithBags([Slot(0, 10, stain: 4)], [Bag(0, 10)]);
+
+        Assert.False(choice.AsksAboutDyed);
+        Assert.NotNull(choice.Main.Pieces.Single().Bag);
+    }
+
+    [Fact]
+    public void DyedBagCopyIsAskedAbout()
+    {
+        var choice = ChooseWithBags([], [Bag(0, 10), Bag(1, 11) with { Stain1 = 7 }]);
+
+        Assert.True(choice.AsksAboutDyed);
+        Assert.Equal(11u, choice.DyedOnly.Single().ItemId);
+        Assert.NotNull(choice.DyedOnly.Single().Bag);
+        Assert.Equal([10u], choice.Undyed.Pieces.Select(p => p.ItemId));
+    }
+
+    [Fact]
+    public void BagCopyTheGameWouldDamageStaysWithItsReason()
+    {
+        var plan = ChooseWithBags([], [Bag(0, 10), Bag(1, 11) with { HasMateria = true }]).Main;
+
+        Assert.Equal([10u], plan.Pieces.Select(p => p.ItemId));
+        Assert.Equal(new SkippedPiece(Body, 11, SkipReason.HasMateria), plan.Skipped.Single());
+    }
+
+    [Fact]
+    public void UsableCopyWinsOverADamagedOne()
+    {
+        var plan = ChooseWithBags([], [Bag(0, 10) with { Glamoured = true }, Bag(1, 10)]).Main;
+
+        Assert.Equal(1, plan.Pieces.Single().Bag!.Value.Slot);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void QualityCountsTheBagPieces()
+    {
+        // Tête normale dans la coiffeuse, corps et mains HQ dans les sacs : la qualité haute range le plus de pièces.
+        var plan = ChooseWithBags([Slot(0, 10)], [Bag(0, 11, hq: true), Bag(1, 12, hq: true)]).Main;
+
+        Assert.True(plan.HighQuality);
+        Assert.Equal([11u, 12u], plan.Pieces.Select(p => p.ItemId));
+        Assert.Equal(new SkippedPiece(Head, 10, SkipReason.OtherQuality), plan.Skipped.Single());
+    }
+
+    [Fact]
+    public void DresserTabsNeverUseTheBags()
+    {
+        var report = DresserScan.Run(Catalog, [Slot(0, 10)], (_, _) => false, [Bag(0, 11), Bag(1, 12)]);
+
+        var plan = PackPlanner.Choose(report.Outfits.Single()).Main;
+
+        Assert.Equal([10u], plan.Pieces.Select(p => p.ItemId));
+        Assert.Empty(plan.FromBags);
+    }
+
+    [Fact]
+    public void BagPieceJoinsTheStoredOutfit()
+    {
+        // Ensemble rangé en case 0 sans ses mains (bit 4).
+        var choice = ChooseWithBags([Slot(0, 1000, 0b0001_0000)], [Bag(0, 12)], (_, column) => column != Hands);
+
+        Assert.False(choice.Main.IsNew);
+        Assert.Equal([12u], choice.Main.FromBags.Select(p => p.ItemId));
+        Assert.Equal(0, choice.Main.DresserSlotsFreed);
+    }
 }

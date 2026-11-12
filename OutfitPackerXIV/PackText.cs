@@ -21,18 +21,18 @@ internal static class PackText
         _ => Loc.T($"{count} slots freed", $"{count} cases libérées"),
     };
 
-    /// <summary>Pourquoi le bouton « Regrouper » est grisé, ou null s'il ne l'est pas.</summary>
-    public static string? WhyDisabled(PackChoice choice, bool busy, bool dresserOpen, int prisms)
+    /// <summary>Pourquoi le bouton « Regrouper » (ou « Ranger ») est grisé, ou null s'il ne l'est pas.</summary>
+    public static string? WhyDisabled(PackChoice choice, bool busy, bool dresserOpen, int prisms, int freeDresserSlots)
     {
         if (busy)
             return Loc.T("Another action is running in the dresser.", "Une autre action est en cours dans la coiffeuse.");
         if (!dresserOpen)
             return Loc.T("Open the Glamour Dresser first.", "Ouvre d'abord la coiffeuse.");
-        return WhyNot(choice.Main, prisms);
+        return WhyNot(choice.Main, prisms, freeDresserSlots);
     }
 
     /// <summary>Pourquoi ce regroupement n'est pas possible, ou null s'il l'est.</summary>
-    public static string? WhyNot(PackPlan plan, int prisms)
+    public static string? WhyNot(PackPlan plan, int prisms, int freeDresserSlots)
     {
         if (!plan.HasWork)
             return Loc.T("No piece to store.", "Aucune pièce à ranger.");
@@ -43,8 +43,106 @@ internal static class PackText
                 $"Pas assez de prismes mirage : il en faut {plan.PrismCost}, tu en as {prisms}.");
         }
 
+        if (plan.IsNew && plan.ToRestore.Count == 0 && freeDresserSlots <= 0)
+            return DresserFull;
+
         return null;
     }
+
+    private static string DresserFull => Loc.T(
+        "The dresser is full: a new outfit takes one slot.",
+        "La coiffeuse est pleine : un nouvel ensemble y prend une case.");
+
+    /// <summary>Ce que l'ensemble libère, en court (liste de l'onglet Inventaire).</summary>
+    public static string ShortBalance(PackPlan plan)
+    {
+        var parts = new List<string>();
+        if (plan.BagSlotsFreed > 0)
+            parts.Add($"−{plan.BagSlotsFreed} " + Loc.T("inventory", "inventaire"));
+        if (plan.DresserSlotsFreed != 0)
+            parts.Add((plan.DresserSlotsFreed > 0 ? $"−{plan.DresserSlotsFreed} " : $"+{-plan.DresserSlotsFreed} ") + Loc.T("dresser", "coiffeuse"));
+        return parts.Count > 0 ? string.Join(", ", parts) : Freed(0);
+    }
+
+    /// <summary>Les cases libérées dans l'inventaire et dans la coiffeuse (ou prises dans la coiffeuse).</summary>
+    private static string Balance(int dresserFreed, int bagsFreed)
+    {
+        var parts = new List<string>();
+        if (bagsFreed > 0)
+        {
+            parts.Add(Loc.T(
+                $"{Slots(bagsFreed)} freed in your inventory",
+                $"{Slots(bagsFreed)} {(bagsFreed == 1 ? "libérée" : "libérées")} dans ton inventaire"));
+        }
+
+        if (dresserFreed > 0)
+        {
+            parts.Add(Loc.T(
+                $"{Slots(dresserFreed)} freed in the dresser",
+                $"{Slots(dresserFreed)} {(dresserFreed == 1 ? "libérée" : "libérées")} dans la coiffeuse"));
+        }
+        else if (dresserFreed < 0)
+        {
+            parts.Add(Loc.T(
+                $"{Slots(-dresserFreed)} taken in the dresser",
+                $"{Slots(-dresserFreed)} {(dresserFreed == -1 ? "prise" : "prises")} dans la coiffeuse"));
+        }
+
+        return parts.Count > 0 ? string.Join(", ", parts) : Freed(0);
+    }
+
+    /// <summary>Ce que le bouton « Ranger » de l'onglet Inventaire va faire.</summary>
+    public static IEnumerable<string> DescribeFromBags(PackChoice choice, int prisms, ItemInfo items)
+    {
+        var plan = choice.Main;
+        if (plan.HasWork)
+        {
+            var count = Pieces(plan.FromBags.Count);
+            yield return Loc.T($"Stores {count} from your inventory (bags or armory chest)", $"Range {count} de ton inventaire (sacs ou arsenal)")
+                + (plan.ToRestore.Count > 0
+                    ? Loc.T($" and {Pieces(plan.ToRestore.Count)} taken out of the dresser first", $" et {Pieces(plan.ToRestore.Count)} sortie{(plan.ToRestore.Count == 1 ? string.Empty : "s")} d'abord de la coiffeuse")
+                    : string.Empty)
+                + (plan.IsNew
+                    ? Loc.T(" as a new outfit.", " en un nouvel ensemble.")
+                    : Loc.T(" in the stored outfit.", " dans l'ensemble rangé."));
+            yield return Balance(plan.DresserSlotsFreed, plan.BagSlotsFreed) + ".";
+            yield return Loc.T(
+                $"Uses up to {plan.PrismCost} Glamour Prisms (one per piece; you have {prisms}).",
+                $"Utilise jusqu'à {plan.PrismCost} prismes mirage (un par pièce ; tu en as {prisms}).");
+            if (plan.HighQuality)
+                yield return Loc.T("High-quality pieces: stored in a high-quality outfit.", "Pièces de haute qualité : rangées dans un ensemble HQ.");
+
+            var signed = plan.FromBags.Where(p => p.Bag!.Value.Signed).Select(p => items.Name(p.ItemId)).ToArray();
+            if (signed.Length > 0)
+                yield return Loc.T("The game removes the crafter's signature of: ", "Le jeu retire la signature d'artisan de : ") + string.Join(", ", signed) + ".";
+        }
+
+        if (choice.AsksAboutDyed)
+        {
+            var one = choice.DyedOnly.Count == 1;
+            yield return Loc.T("Only dyed: ", one ? "Seulement teinte : " : "Seulement teintes : ")
+                + Names(choice.DyedOnly, items) + ". "
+                + (one
+                    ? Loc.T("It will ask you whether to store it too (the game removes its dye).", "Il te demandera s'il faut la ranger aussi (le jeu retire sa teinture).")
+                    : Loc.T("It will ask you whether to store them too (the game removes their dye).", "Il te demandera s'il faut les ranger aussi (le jeu retire leur teinture)."));
+        }
+
+        var left = plan.Skipped.Where(s => s.Reason != SkipReason.Dyed).Select(s => $"{items.Name(s.ItemId)} ({Reason(s.Reason)})").ToArray();
+        if (left.Length > 0)
+            yield return Loc.T("Left where they are: ", "Restent à leur place : ") + string.Join(", ", left) + ".";
+    }
+
+    /// <summary>Pourquoi une pièce reste à sa place, en quelques mots.</summary>
+    public static string Reason(SkipReason reason) => reason switch
+    {
+        SkipReason.Dyed => Loc.T("dyed", "teinte"),
+        SkipReason.OtherQuality => Loc.T("other quality", "autre qualité"),
+        SkipReason.InGearset => Loc.T("used by a gear set", "dans un ensemble d'équipement"),
+        SkipReason.HasMateria => Loc.T("materia", "matérias"),
+        SkipReason.Glamoured => Loc.T("glamoured", "mirage projeté"),
+        SkipReason.NotRepaired => Loc.T("needs repair", "à réparer"),
+        _ => reason.ToString(),
+    };
 
     /// <summary>Ce que le bouton « Regrouper » va faire.</summary>
     public static IEnumerable<string> Describe(PackChoice choice, int prisms, ItemInfo items)
@@ -91,10 +189,15 @@ internal static class PackText
         var name = items.Name(choice.WithDyed.Outfit.SetItemId);
         var one = choice.DyedOnly.Count == 1;
         var pieces = Names(choice.DyedOnly, items);
+        var inBags = choice.DyedOnly.Any(p => p.Bag != null);
         return Loc.T($"Outfit “{name}”: ", $"Ensemble « {name} » : ")
-            + (one
-                ? Loc.T($"{pieces} is only in the dresser dyed.", $"{pieces} n'est dans la coiffeuse qu'en version teinte.")
-                : Loc.T($"{pieces} are only in the dresser dyed.", $"{pieces} ne sont dans la coiffeuse qu'en version teinte."))
+            + (inBags
+                ? one
+                    ? Loc.T($"{pieces} is only there dyed.", $"{pieces} n'est là qu'en version teinte.")
+                    : Loc.T($"{pieces} are only there dyed.", $"{pieces} ne sont là qu'en version teinte.")
+                : one
+                    ? Loc.T($"{pieces} is only in the dresser dyed.", $"{pieces} n'est dans la coiffeuse qu'en version teinte.")
+                    : Loc.T($"{pieces} are only in the dresser dyed.", $"{pieces} ne sont dans la coiffeuse qu'en version teinte."))
             + " " + Loc.T(
                 "The game removes the dye of the pieces it stores in an outfit.",
                 "Le jeu retire la teinture des pièces qu'il range dans un ensemble.");
@@ -124,8 +227,8 @@ internal static class PackText
                     $"Packing “{items.Name(pack.Plan.Outfit.SetItemId)}”: storing the outfit…",
                     $"Regroupement de « {items.Name(pack.Plan.Outfit.SetItemId)} » : rangement dans l'ensemble…")
                 : Loc.T(
-                    $"Packing “{items.Name(pack.Plan.Outfit.SetItemId)}”: taking pieces out ({pack.TakenOut}/{pack.Plan.Pieces.Count})…",
-                    $"Regroupement de « {items.Name(pack.Plan.Outfit.SetItemId)} » : sortie des pièces ({pack.TakenOut}/{pack.Plan.Pieces.Count})…"),
+                    $"Packing “{items.Name(pack.Plan.Outfit.SetItemId)}”: taking pieces out ({pack.TakenOut}/{pack.Plan.ToRestore.Count})…",
+                    $"Regroupement de « {items.Name(pack.Plan.Outfit.SetItemId)} » : sortie des pièces ({pack.TakenOut}/{pack.Plan.ToRestore.Count})…"),
             RemoveJob remove => Loc.T(
                 $"Duplicates of “{items.Name(remove.Plan.Outfit.SetItemId)}”: taking them out ({remove.Removed}/{remove.Plan.Copies.Count})…",
                 $"Doublons de « {items.Name(remove.Plan.Outfit.SetItemId)} » : sortie ({remove.Removed}/{remove.Plan.Copies.Count})…"),
@@ -200,7 +303,10 @@ internal static class PackText
         var lines = new List<string>();
         if (result.StoredPieces > 0)
         {
-            var freed = Freed(plan.IsNew ? result.StoredPieces - 1 : result.StoredPieces);
+            var fromDresser = result.StoredPieces - result.StoredFromBags;
+            var freed = result.StoredFromBags > 0
+                ? Balance(plan.IsNew ? fromDresser - 1 : fromDresser, result.StoredFromBags)
+                : Freed(plan.IsNew ? result.StoredPieces - 1 : result.StoredPieces);
             var count = Pieces(result.StoredPieces);
             var added = result.StoredPieces == 1 ? "ajoutée" : "ajoutées";
             lines.Add(plan.IsNew
@@ -242,6 +348,7 @@ internal static class PackText
             PackProblem.NotEnoughPrisms => Loc.T("Not enough Glamour Prisms (one per piece).", "Pas assez de prismes mirage (un par pièce)."),
             PackProblem.AlreadyStored => Loc.T("This outfit is already in the dresser.", "Cet ensemble est déjà dans la coiffeuse."),
             PackProblem.OutfitNotFound => Loc.T("The outfit is no longer in the dresser.", "L'ensemble n'est plus dans la coiffeuse."),
+            PackProblem.DresserFull => DresserFull,
             PackProblem.DresserClosed => Loc.T("The Glamour Dresser was closed.", "La coiffeuse a été fermée."),
             PackProblem.RestoreRefused => Loc.T(
                 $"The game refused three times to take {piece} out of the dresser (a unique item you already have?). Try again in a moment.",

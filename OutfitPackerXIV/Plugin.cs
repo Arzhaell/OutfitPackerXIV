@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
@@ -29,8 +30,13 @@ public sealed class Plugin : IDalamudPlugin
     private readonly MainWindow mainWindow;
     private readonly GameDresser dresser = new();
 
-    // Dernières cases lues : on ne refait le calcul que si la coiffeuse a changé.
+    // Dernières cases, sacs et ensembles d'équipement lus : on ne refait le calcul que si l'un d'eux a changé.
     private DresserSlot[]? lastSlots;
+    private BagItem[]? lastBags;
+    private HashSet<uint>? lastGearsetItemIds;
+    private TimeSpan lastBagsRead;
+
+    private static readonly TimeSpan BagsReadInterval = TimeSpan.FromMilliseconds(250);
 
     // La fonction du jeu qui compte les prismes a échoué (jeu mis à jour sans le plugin) : on ne la rappelle plus.
     private bool prismsUnreadable;
@@ -89,7 +95,9 @@ public sealed class Plugin : IDalamudPlugin
 
         LastResult = null;
         Job = new PackJob(dresser, plan);
-        Log.Information($"Packing outfit {plan.DresserSetItemId}: {plan.Pieces.Count} pieces ({string.Join(", ", plan.Pieces.Select(p => p.DresserItemId))}), new: {plan.IsNew}.");
+        Log.Information($"Packing outfit {plan.DresserSetItemId}: {plan.Pieces.Count} pieces ("
+            + string.Join(", ", plan.Pieces.Select(p => p.DresserItemId + (p.Bag is { } bag ? $" from bag {bag.Container}/{bag.Slot}" : string.Empty)))
+            + $"), new: {plan.IsNew}.");
     }
 
     internal void StartRemove(RemovePlan plan)
@@ -176,21 +184,39 @@ public sealed class Plugin : IDalamudPlugin
             }
         }
 
-        if (lastSlots != null && slots.AsSpan().SequenceEqual(lastSlots))
+        // La coiffeuse est relue à chaque image ; les sacs et les ensembles d'équipement, quatre fois par seconde.
+        var now = TimeSpan.FromMilliseconds(Environment.TickCount64);
+        var slotsChanged = lastSlots == null || !slots.AsSpan().SequenceEqual(lastSlots);
+        if (!slotsChanged && now - lastBagsRead < BagsReadInterval)
             return;
 
-        lastSlots = slots;
+        lastBagsRead = now;
         try
         {
-            Report = DresserScan.Run(Catalog, slots, dresser.IsOutfitColumnStored);
+            var bags = dresser.ReadBags().ToArray();
+            var gearsetItemIds = dresser.ReadGearsetItemIds();
+            if (!slotsChanged
+                && lastBags != null && bags.AsSpan().SequenceEqual(lastBags)
+                && lastGearsetItemIds != null && gearsetItemIds.SetEquals(lastGearsetItemIds))
+            {
+                return;
+            }
+
+            lastSlots = slots;
+            lastBags = bags;
+            lastGearsetItemIds = gearsetItemIds;
+            Report = DresserScan.Run(Catalog, slots, dresser.IsOutfitColumnStored, bags, gearsetItemIds);
             ReadError = false;
         }
         catch (Exception e)
         {
-            // Une fonction du jeu introuvable après un patch : on le note une fois, la fenêtre l'affiche.
-            Log.Error(e, "Could not read the Glamour Dresser.");
+            // Une fonction du jeu introuvable après un patch : on le note une fois, la fenêtre l'affiche. La lecture est
+            // retentée à chaque image, sans remplir le journal.
+            if (!ReadError)
+                Log.Error(e, "Could not read the Glamour Dresser.");
             Report = null;
             ReadError = true;
+            lastSlots = null;
         }
     }
 

@@ -252,4 +252,76 @@ public class DresserScanTests
     [Fact]
     public void OutfitNeedsElevenColumns() =>
         Assert.Throws<ArgumentException>(() => new OutfitDefinition(1, [1, 2, 3]));
+
+    private static BagItem Bag(int slot, uint itemId, uint container = 0) => new(container, slot, itemId, false, BagItem.FullCondition);
+
+    [Fact]
+    public void OutfitWithPiecesOnlyInTheBagsIsListed()
+    {
+        var report = DresserScan.Run(Catalog, Dresser(99), (_, _) => false, [Bag(0, 30), Bag(1, 31, container: 3202)]);
+
+        var outfit = Assert.Single(report.WithBagPieces);
+        Assert.Equal(3000u, outfit.Outfit.SetItemId);
+        Assert.All(outfit.Pieces, p => Assert.True(p.CanJoinFromBags));
+        Assert.True(outfit.Pieces[1].InBags.Single().Item.InArmory);
+
+        // Les onglets de la coiffeuse ne changent pas : rien n'y est.
+        Assert.Empty(report.Complete);
+        Assert.Empty(report.Partial(withSinglePieces: true));
+    }
+
+    [Fact]
+    public void BagCopiesTheGameWouldDamageCarryTheirReason()
+    {
+        var bags = new[]
+        {
+            Bag(0, 10) with { HasMateria = true },
+            Bag(1, 11) with { Glamoured = true },
+            Bag(2, 12) with { Condition = 29_999 },
+            Bag(3, 30),
+            Bag(4, 31) with { Signed = true, Stain0 = 3 },
+        };
+
+        var report = DresserScan.Run(Catalog, Dresser(99), (_, _) => false, bags, new HashSet<uint> { 30 });
+
+        SkipReason? Block(uint itemId) => report.Outfits.SelectMany(o => o.Pieces).First(p => p.ItemId == itemId).InBags.Single().Block;
+        Assert.Equal(SkipReason.HasMateria, Block(10));
+        Assert.Equal(SkipReason.Glamoured, Block(11));
+        Assert.Equal(SkipReason.NotRepaired, Block(12));
+        Assert.Equal(SkipReason.InGearset, Block(30));
+
+        // Signée et teinte : le plugin peut la ranger (il prévient, et demande pour la teinture).
+        Assert.Null(Block(31));
+    }
+
+    [Fact]
+    public void GearsetBlocksBothQualities()
+    {
+        var hq = new BagItem(0, 0, 30, true, BagItem.FullCondition);
+
+        var report = DresserScan.Run(Catalog, Dresser(99), (_, _) => false, [hq], new HashSet<uint> { 30 });
+
+        Assert.Equal(SkipReason.InGearset, report.Outfits.Single().Pieces.First(p => p.ItemId == 30).InBags.Single().Block);
+    }
+
+    [Fact]
+    public void BagCopyOfAPieceAlreadyInTheStoredOutfitIsNotListed()
+    {
+        // Ensemble C rangé en case 0 avec ses deux pièces (aucun bit « manquante »).
+        var slots = new[] { new DresserSlot(0, 3000, 0, 0) };
+
+        var report = DresserScan.Run(Catalog, slots, (_, _) => true, [Bag(0, 30)]);
+
+        Assert.Empty(report.WithBagPieces);
+        Assert.DoesNotContain(report.Outfits, o => o.Outfit.SetItemId == 3000);
+    }
+
+    [Fact]
+    public void ReportKnowsTheFreeDresserSlots()
+    {
+        var report = Scan([new DresserSlot(0, 10, 0, 0), new DresserSlot(1, 0, 0, 0), new DresserSlot(2, 0, 0, 0)]);
+
+        Assert.Equal(3, report.TotalSlots);
+        Assert.Equal(2, report.FreeSlots);
+    }
 }

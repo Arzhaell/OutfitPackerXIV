@@ -376,4 +376,153 @@ public class PackJobTests
         Assert.Contains("new 1001000", game.Calls);
         Assert.Contains(game.Slots, s => s.ItemId == 12);
     }
+
+    private static BagItem BagPiece(int slot, uint itemId, uint container = FakeGame.Inventory1) =>
+        new(container, slot, itemId, false, BagItem.FullCondition);
+
+    private static PackPlan PlanWithBags(FakeGame game, bool includeDyed = false)
+    {
+        var report = DresserScan.Run(Catalog, game.Slots, game.IsOutfitColumnStored, game.ReadBags());
+        return PackPlanner.Plan(report.Outfits.Single(o => o.Outfit.SetItemId == 1000), includeDyed, useBags: true);
+    }
+
+    [Fact]
+    public void StoresBagPiecesWithoutTakingAnythingOut()
+    {
+        var game = Game(Slot(0, 99));
+        game.Bags.AddRange([BagPiece(5, 10), BagPiece(0, 11, container: 3202), BagPiece(7, 12)]);
+
+        var result = Run(game, PlanWithBags(game));
+
+        Assert.Equal(PackProblem.None, result.Problem);
+        Assert.Equal(3, result.StoredPieces);
+        Assert.Equal(3, result.StoredFromBags);
+        Assert.Equal(["new 1000"], game.Calls);
+        Assert.Equal([0u, 3202u, 0u], game.LastStore!.Value.Containers.Take(3));
+        Assert.Equal([5, 0, 7], game.LastStore.Value.Slots.Take(3).Select(s => (int)s));
+        Assert.Empty(game.Bags);
+        Assert.Equal(96, game.Prisms);
+    }
+
+    [Fact]
+    public void TakesDresserPiecesOutThenStoresThemWithTheBagPieces()
+    {
+        var game = Game(Slot(0, 11));
+        game.Bags.AddRange([BagPiece(3, 10), BagPiece(4, 12)]);
+
+        var result = Run(game, PlanWithBags(game));
+
+        Assert.Equal(PackProblem.None, result.Problem);
+        Assert.Equal(3, result.StoredPieces);
+        Assert.Equal(2, result.StoredFromBags);
+        Assert.Equal(["restore 0", "new 1000"], game.Calls);
+        Assert.Empty(game.Bags);
+    }
+
+    [Fact]
+    public void BagPieceJoinsTheStoredOutfit()
+    {
+        // Ensemble rangé en case 0 sans ses mains (bit 4).
+        var game = Game(Slot(0, 1000, 0b0001_0000));
+        game.Bags.Add(BagPiece(2, 12));
+
+        var result = Run(game, PlanWithBags(game));
+
+        Assert.Equal(PackProblem.None, result.Problem);
+        Assert.Equal(["existing 0"], game.Calls);
+        Assert.Equal(Slot(0, 1000), game.Slots[0]);
+        Assert.Empty(game.Bags);
+    }
+
+    [Fact]
+    public void BagPieceMovedInTheMeantimeIsNotStored()
+    {
+        var game = Game(Slot(0, 10));
+        game.Bags.AddRange([BagPiece(3, 11), BagPiece(4, 12)]);
+        var plan = PlanWithBags(game);
+        game.Bags.RemoveAll(b => b.ItemId == 12);
+        game.Bags.Add(BagPiece(9, 12));
+
+        var result = Run(game, plan);
+
+        Assert.Equal(PackProblem.PieceMoved, result.Problem);
+        Assert.Equal(12u, result.ProblemItemId);
+        Assert.Equal(2, result.StoredPieces);
+        Assert.Contains(game.Bags, b => b is { ItemId: 12, Slot: 9 });
+    }
+
+    [Fact]
+    public void BagPieceSwappedForAMeldedCopyIsNotStored()
+    {
+        var game = Game(Slot(0, 99));
+        game.Bags.AddRange([BagPiece(3, 10), BagPiece(4, 11)]);
+        var plan = PlanWithBags(game);
+
+        // Le même objet, à la même place, mais serti de matérias : le jeu les détruirait.
+        game.Bags[1] = BagPiece(4, 11) with { HasMateria = true };
+
+        var result = Run(game, plan);
+
+        Assert.Equal(PackProblem.PieceMoved, result.Problem);
+        Assert.Equal(1, result.StoredPieces);
+        Assert.Contains(game.Bags, b => b is { ItemId: 11, HasMateria: true });
+    }
+
+    [Fact]
+    public void NewOutfitFromTheBagsNeedsAFreeDresserSlot()
+    {
+        var game = new FakeGame(Catalog, [Slot(0, 99), Slot(1, 98)], size: 2);
+        game.Bags.AddRange([BagPiece(0, 10), BagPiece(1, 11)]);
+
+        var result = Run(game, PlanWithBags(game));
+
+        Assert.Equal(PackProblem.DresserFull, result.Problem);
+        Assert.Empty(game.Calls);
+        Assert.Equal(2, game.Bags.Count);
+    }
+
+    [Fact]
+    public void FullDresserIsFineWhenAPieceComesOutOfIt()
+    {
+        var game = new FakeGame(Catalog, [Slot(0, 10), Slot(1, 98)], size: 2);
+        game.Bags.Add(BagPiece(0, 11));
+
+        var result = Run(game, PlanWithBags(game));
+
+        Assert.Equal(PackProblem.None, result.Problem);
+        Assert.Equal(["restore 0", "new 1000"], game.Calls);
+    }
+
+    [Fact]
+    public void StopStillStoresTheBagPieces()
+    {
+        var game = Game(Slot(0, 10), Slot(1, 11));
+        game.Bags.Add(BagPiece(0, 12));
+
+        var result = Run(game, PlanWithBags(game), (job, _) =>
+        {
+            if (job.TakenOut == 1)
+                job.Stop();
+        });
+
+        // Une pièce sortie, la seconde reste ; la pièce des sacs est rangée avec la première.
+        Assert.Equal(PackProblem.Stopped, result.Problem);
+        Assert.Equal(2, result.StoredPieces);
+        Assert.Equal(1, result.StoredFromBags);
+        Assert.Contains(game.Slots, s => s.ItemId == 11);
+    }
+
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(true, 2)]
+    public void DyedBagPieceIsStoredOnlyWhenAllowed(bool includeDyed, int stored)
+    {
+        var game = Game(Slot(0, 99));
+        game.Bags.AddRange([BagPiece(0, 10), BagPiece(1, 11) with { Stain0 = 2 }]);
+
+        var result = Run(game, PlanWithBags(game, includeDyed));
+
+        Assert.Equal(stored, result.StoredPieces);
+        Assert.Equal(!includeDyed, game.Bags.Any(b => b.ItemId == 11));
+    }
 }

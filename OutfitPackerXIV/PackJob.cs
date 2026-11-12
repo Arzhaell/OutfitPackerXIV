@@ -56,6 +56,9 @@ public enum PackProblem
     /// <summary>L'ensemble à compléter n'est plus dans la coiffeuse.</summary>
     OutfitNotFound,
 
+    /// <summary>Aucune case vide dans la coiffeuse pour un nouvel ensemble (et aucune pièce à en sortir).</summary>
+    DresserFull,
+
     /// <summary>La coiffeuse s'est fermée (ou le jeu a oublié son contenu, au changement de zone).</summary>
     DresserClosed,
 
@@ -89,17 +92,20 @@ public enum PackProblem
 /// <param name="StoredPieces">Pièces rangées dans l'ensemble.</param>
 /// <param name="LeftInInventory">Pièces sorties de la coiffeuse et restées dans l'inventaire.</param>
 /// <param name="NoLongerInDresser">Pièces prévues qui n'étaient plus dans la coiffeuse.</param>
+/// <param name="StoredFromBags">Parmi les pièces rangées, celles qui étaient déjà dans les sacs ou l'arsenal.</param>
 public sealed record PackResult(
     PackProblem Problem,
     uint ProblemItemId,
     int StoredPieces,
     IReadOnlyList<uint> LeftInInventory,
-    IReadOnlyList<uint> NoLongerInDresser);
+    IReadOnlyList<uint> NoLongerInDresser,
+    int StoredFromBags = 0);
 
 /// <summary>
 /// Regroupe un ensemble, une action à la fois : sort chaque pièce de la coiffeuse en attendant que le jeu confirme
-/// (case vidée, objet arrivé dans les sacs ou l'arsenal), puis range les pièces sorties dans l'ensemble. Il ne touche
-/// jamais aux objets qui étaient déjà dans l'inventaire. Appeler <see cref="Update"/> à chaque image du jeu.
+/// (case vidée, objet arrivé dans les sacs ou l'arsenal), puis range les pièces sorties dans l'ensemble. Des objets
+/// qui étaient déjà dans l'inventaire, il ne range que ceux que le plan désigne (onglet Inventaire), à la place qu'ils
+/// avaient. Appeler <see cref="Update"/> à chaque image du jeu.
 /// </summary>
 public sealed class PackJob : IDresserJob
 {
@@ -248,6 +254,11 @@ public sealed class PackJob : IDresserJob
         {
             Finish(PackProblem.OutfitNotFound);
         }
+        else if (Plan.IsNew && Plan.ToRestore.Count == 0 && slots.All(s => s.ItemId != 0))
+        {
+            // Aucune pièce ne sortira de la coiffeuse pour faire de la place au nouvel ensemble.
+            Finish(PackProblem.DresserFull);
+        }
         else
         {
             step = Step.NextRestore;
@@ -257,19 +268,19 @@ public sealed class PackJob : IDresserJob
 
     private void RestoreNext(IReadOnlyList<DresserSlot> slots, TimeSpan now)
     {
-        if (nextPiece < Plan.Pieces.Count && StopRequested)
+        if (nextPiece < Plan.ToRestore.Count && StopRequested)
         {
             Soft(PackProblem.Stopped, 0);
-            nextPiece = Plan.Pieces.Count;
+            nextPiece = Plan.ToRestore.Count;
         }
 
-        if (nextPiece >= Plan.Pieces.Count)
+        if (nextPiece >= Plan.ToRestore.Count)
         {
             step = Step.Store;
             return;
         }
 
-        var piece = Plan.Pieces[nextPiece++];
+        var piece = Plan.ToRestore[nextPiece++];
 
         // Relu à chaque fois : les numéros de case de la coiffeuse peuvent avoir bougé depuis le calcul.
         var index = FindLoose(slots, piece);
@@ -292,7 +303,7 @@ public sealed class PackJob : IDresserJob
 
             // Toujours refusée : les pièces suivantes ne sortiraient sans doute pas non plus.
             Soft(RefusalProblem(game), piece.ItemId);
-            nextPiece = Plan.Pieces.Count;
+            nextPiece = Plan.ToRestore.Count;
             step = Step.Store;
             return;
         }
@@ -325,18 +336,21 @@ public sealed class PackJob : IDresserJob
 
     private void Store(IReadOnlyList<DresserSlot> slots, TimeSpan now)
     {
-        if (taken.Count == 0)
+        if (taken.Count == 0 && Plan.FromBags.Count == 0)
         {
             Finish(softProblem == PackProblem.None ? PackProblem.NothingToStore : PackProblem.None);
             return;
         }
 
-        // Les pièces doivent être encore là où le jeu les a mises, et à 100 % : sinon il refuse de les ranger.
+        // Les pièces doivent être encore là où le jeu les a mises (ou là où elles étaient dans l'inventaire), et à 100 % :
+        // sinon il refuse de les ranger. Une pièce de l'inventaire remplacée entre-temps par un exemplaire serti ou
+        // couvert d'un mirage n'est pas prise.
         var bags = game.ReadBags();
         var ready = new List<(PlannedPiece Piece, BagItem Item)>();
-        foreach (var (piece, item) in taken)
+        foreach (var (piece, item) in taken.Concat(Plan.FromBags.Select(p => (p, p.Bag!.Value))))
         {
-            var current = bags.Where(b => b.Position == item.Position && IsCopyOf(b, piece)).ToArray();
+            var current = bags.Where(b => b.Position == item.Position && IsCopyOf(b, piece)
+                && (piece.Bag == null || (!b.HasMateria && !b.Glamoured))).ToArray();
             if (current.Length == 0)
                 Soft(PackProblem.PieceMoved, piece.ItemId);
             else if (current[0].Condition < BagItem.FullCondition)
@@ -424,9 +438,10 @@ public sealed class PackJob : IDresserJob
     {
         var storedIds = stored > 0 ? storing.Select(s => s.Piece.ItemId).ToHashSet() : [];
         var left = taken.Select(t => t.Piece.ItemId).Where(id => !storedIds.Contains(id)).ToArray();
+        var fromBags = stored > 0 ? storing.Count(s => s.Piece.Bag != null) : 0;
         Result = problem != PackProblem.None
-            ? new PackResult(problem, itemId, stored, left, notFound.ToArray())
-            : new PackResult(softProblem, softProblemItemId, stored, left, notFound.ToArray());
+            ? new PackResult(problem, itemId, stored, left, notFound.ToArray(), fromBags)
+            : new PackResult(softProblem, softProblemItemId, stored, left, notFound.ToArray(), fromBags);
     }
 
     private static bool IsCopyOf(BagItem item, PlannedPiece piece) => item.ItemId == piece.ItemId && item.HighQuality == piece.HighQuality;

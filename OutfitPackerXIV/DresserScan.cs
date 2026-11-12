@@ -13,10 +13,42 @@ public readonly record struct LoosePiece(int Index, byte Stain0, byte Stain1, bo
     public bool Dyed => Stain0 != 0 || Stain1 != 0;
 }
 
-/// <summary>Une pièce d'un ensemble, et où elle se trouve dans la coiffeuse.</summary>
+/// <summary>
+/// Un exemplaire d'une pièce dans les sacs ou l'arsenal, et pourquoi le plugin n'y touche pas (null : il peut le ranger).
+/// </summary>
+public readonly record struct BagCopy(BagItem Item, SkipReason? Block)
+{
+    public bool Usable => Block == null;
+
+    /// <summary>
+    /// Ce qui empêche de ranger cet exemplaire : ce qu'une pièce d'ensemble d'équipement perdrait, ce que le jeu
+    /// détruirait (matérias, mirage), ou ce qu'il refuse (condition).
+    /// </summary>
+    public static SkipReason? BlockOf(BagItem item, IReadOnlySet<uint> gearsetItemIds)
+    {
+        if (gearsetItemIds.Contains(ItemIds.Base(item.ItemId)))
+            return SkipReason.InGearset;
+        if (item.HasMateria)
+            return SkipReason.HasMateria;
+        if (item.Glamoured)
+            return SkipReason.Glamoured;
+        if (item.Condition < BagItem.FullCondition)
+            return SkipReason.NotRepaired;
+        return null;
+    }
+}
+
+/// <summary>Une pièce d'un ensemble, et où elle se trouve : coiffeuse, sacs, arsenal.</summary>
 public sealed class PieceStatus
 {
-    public PieceStatus(int column, uint itemId, bool inOutfit, IReadOnlyList<LoosePiece> loose, IReadOnlyList<uint> sharedWith, IReadOnlyList<LoosePiece> extra)
+    public PieceStatus(
+        int column,
+        uint itemId,
+        bool inOutfit,
+        IReadOnlyList<LoosePiece> loose,
+        IReadOnlyList<uint> sharedWith,
+        IReadOnlyList<LoosePiece> extra,
+        IReadOnlyList<BagCopy>? inBags = null)
     {
         Column = column;
         ItemId = itemId;
@@ -24,6 +56,7 @@ public sealed class PieceStatus
         Loose = loose;
         SharedWith = sharedWith;
         Extra = extra;
+        InBags = inBags ?? [];
     }
 
     /// <summary>Colonne de la pièce dans l'ensemble (feuille MirageStoreSetItem).</summary>
@@ -53,6 +86,12 @@ public sealed class PieceStatus
     public IReadOnlyList<LoosePiece> Extra { get; }
 
     public int ExtraCopies => Extra.Count;
+
+    /// <summary>Exemplaires dans les sacs et l'arsenal (jamais l'équipement porté).</summary>
+    public IReadOnlyList<BagCopy> InBags { get; }
+
+    /// <summary>Pas encore dans l'ensemble, et au moins un exemplaire dans les sacs ou l'arsenal.</summary>
+    public bool CanJoinFromBags => !InOutfit && InBags.Count > 0;
 }
 
 /// <summary>Un ensemble dont au moins une pièce est rangée seule dans la coiffeuse.</summary>
@@ -98,17 +137,24 @@ public sealed class OutfitStatus
     public bool HasDyedPieces => Pieces.Any(p => p.CanJoin && p.Loose.Any(l => l.Dyed));
 }
 
-/// <summary>Ce que la coiffeuse permet de regrouper.</summary>
+/// <summary>Ce que la coiffeuse (et, si on les donne, les sacs et l'arsenal) permet de regrouper.</summary>
 public sealed class DresserReport
 {
-    public DresserReport(int usedSlots, IReadOnlyList<OutfitStatus> outfits)
+    public DresserReport(int usedSlots, IReadOnlyList<OutfitStatus> outfits, int totalSlots)
     {
         UsedSlots = usedSlots;
         Outfits = outfits;
+        TotalSlots = totalSlots;
     }
 
     /// <summary>Cases occupées de la coiffeuse.</summary>
     public int UsedSlots { get; }
+
+    /// <summary>Cases de la coiffeuse en tout.</summary>
+    public int TotalSlots { get; }
+
+    /// <summary>Cases vides de la coiffeuse : un nouvel ensemble en prend une.</summary>
+    public int FreeSlots => TotalSlots - UsedSlots;
 
     /// <summary>Les ensembles concernés, du plus grand gain au plus petit.</summary>
     public IReadOnlyList<OutfitStatus> Outfits { get; }
@@ -128,6 +174,9 @@ public sealed class DresserReport
     /// <summary>Ensembles dont des pièces sont en trop dans la coiffeuse.</summary>
     public IEnumerable<OutfitStatus> Duplicates => Outfits.Where(o => o.ExtraCopies > 0);
 
+    /// <summary>Ensembles dont des pièces sont dans les sacs ou l'arsenal, utilisables ou non.</summary>
+    public IEnumerable<OutfitStatus> WithBagPieces => Outfits.Where(o => o.Pieces.Any(p => p.CanJoinFromBags));
+
     /// <summary>
     /// Cases libérées si on range tout. C'est un maximum : une pièce partagée entre deux ensembles compte dans les deux,
     /// alors qu'elle ne peut rejoindre que l'un d'eux.
@@ -144,7 +193,14 @@ public static class DresserScan
     /// <param name="isOutfitColumnStored">
     /// Pour un ensemble rangé : la pièce de cette colonne est-elle dedans ? (case de la coiffeuse, colonne)
     /// </param>
-    public static DresserReport Run(OutfitCatalog catalog, IReadOnlyList<DresserSlot> slots, Func<int, int, bool> isOutfitColumnStored)
+    /// <param name="bags">Les objets des sacs et de l'arsenal, ou null pour ne regarder que la coiffeuse.</param>
+    /// <param name="gearsetItemIds">Les objets utilisés par les ensembles d'équipement (numéro sans la qualité).</param>
+    public static DresserReport Run(
+        OutfitCatalog catalog,
+        IReadOnlyList<DresserSlot> slots,
+        Func<int, int, bool> isOutfitColumnStored,
+        IReadOnlyList<BagItem>? bags = null,
+        IReadOnlySet<uint>? gearsetItemIds = null)
     {
         var used = 0;
         var loose = new Dictionary<uint, List<LoosePiece>>();
@@ -182,6 +238,26 @@ public static class DresserScan
             }
         }
 
+        // Les pièces d'ensemble des sacs et de l'arsenal, avec ce qui empêche de les ranger.
+        var inBags = new Dictionary<uint, List<BagCopy>>();
+        foreach (var item in bags ?? [])
+        {
+            var itemId = ItemIds.Base(item.ItemId);
+            var outfits = catalog.OutfitsWithPiece(itemId);
+            if (outfits.Count == 0)
+                continue;
+
+            if (!inBags.TryGetValue(itemId, out var copies))
+                inBags[itemId] = copies = [];
+            copies.Add(new BagCopy(item, BagCopy.BlockOf(item, gearsetItemIds ?? new HashSet<uint>())));
+
+            foreach (var outfit in outfits)
+            {
+                if (!outfitIds.Contains(outfit.SetItemId))
+                    outfitIds.Add(outfit.SetItemId);
+            }
+        }
+
         var extra = loose.ToDictionary(l => l.Key, l => ExtraCopies(catalog, l.Key, l.Value, stored, isOutfitColumnStored));
         var result = new List<OutfitStatus>();
         foreach (var setItemId in outfitIds)
@@ -196,18 +272,20 @@ public static class DresserScan
                 outfitIndex is { } i && isOutfitColumnStored(i, p.Column),
                 loose.TryGetValue(p.ItemId, out var copies) ? copies : [],
                 catalog.OutfitsWithPiece(p.ItemId).Where(o => o != outfit).Select(o => o.SetItemId).ToArray(),
-                extra.TryGetValue(p.ItemId, out var extraCopies) ? extraCopies : [])).ToArray();
+                extra.TryGetValue(p.ItemId, out var extraCopies) ? extraCopies : [],
+                inBags.TryGetValue(p.ItemId, out var bagCopies) ? bagCopies : [])).ToArray();
 
             var status = new OutfitStatus(outfit, outfitIndex, pieces, isStored && ItemIds.IsHighQuality(storedSlot.ItemId));
-            if (status.JoinablePieces > 0 || status.ExtraCopies > 0)
+            if (status.JoinablePieces > 0 || status.ExtraCopies > 0 || status.Pieces.Any(p => p.CanJoinFromBags))
                 result.Add(status);
         }
 
-        return new DresserReport(used, result
+        var ordered = result
             .OrderByDescending(o => o.FreedSlots)
             .ThenBy(o => o.MissingPieces)
             .ThenBy(o => o.Outfit.SetItemId)
-            .ToArray());
+            .ToArray();
+        return new DresserReport(used, ordered, slots.Count);
     }
 
     // Un exemplaire reste pour chaque ensemble du jeu à qui la pièce manque, rangé ou pas encore : ainsi aucun ensemble ne
