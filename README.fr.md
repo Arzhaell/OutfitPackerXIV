@@ -63,8 +63,10 @@ En français et en anglais (suit la langue de Dalamud, réglable dans les régla
 Ajoute ce dépôt dans `/xlsettings`, onglet **Expérimental**, puis installe OutfitPackerXIV depuis `/xlplugins` :
 
 ```
-https://raw.githubusercontent.com/Arzhaell/OutfitPackerXIV/main/repo.json
+https://raw.githubusercontent.com/Arzhaell/ArzhaelXIVPlugins/main/repo.json
 ```
+
+Cette adresse donne accès à [tous mes plugins](https://github.com/Arzhaell/ArzhaelXIVPlugins/blob/main/README.fr.md). Si tu avais déjà ajouté l'adresse propre à ce plugin (`https://raw.githubusercontent.com/Arzhaell/OutfitPackerXIV/main/repo.json`), elle marche toujours ; avec les deux, chaque plugin apparaît deux fois ([changer d'adresse](https://github.com/Arzhaell/ArzhaelXIVPlugins/blob/main/README.fr.md#installation)).
 
 ## Compiler
 SDK .NET 10 et XIVLauncher (Dalamud) installés.
